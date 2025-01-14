@@ -1,0 +1,36 @@
+[project]
+name = "abcde"
+version = "0.1.0"
+description = "The official repository for the ABCDE dataset."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dask-jobqueue>=0.9.0",
+    "dask[distributed]>=2025.3.0",
+    "flashtext>=2.7",
+    "nltk>=3.9.1",
+    "numpy>=2.2.6",
+    "openpyxl>=3.1.5",
+    "orjson>=3.10.18",
+    "pandas>=2.2.3",
+    "pip>=25.1.1",
+    "presidio-analyzer>=2.2.30",
+    "pyarrow>=20.0.0",
+    "pytest-timeout>=2.4.0",
+    "requests>=2.32.3",
+    "spacy>=3.8.7",
+    "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest-timeout>=2.4.0",
+]
+
+[tool.pytest.ini_options]
+timeout = 120
+
+[tool.pre-commit]
+stages = ["commit"]
+timeout = 120
