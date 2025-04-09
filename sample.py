@@ -270,7 +270,7 @@ def process_reddit_data_dask(
     max_words: int,
     download_dir: str = "sampled_data",
     seed: int = 42,
-    n_workers: int = 16,
+    n_workers: int = 64,
     memory_per_worker: str = "16GB",
 ):
     # Set up SLURM cluster
@@ -279,8 +279,7 @@ def process_reddit_data_dask(
         processes=1,  # 1 process per worker
         memory=memory_per_worker,
         walltime="1-06:00:00",
-        queue="normal",
-        job_extra=["--nodes=1", "--cpus-per-task=1"],
+        job_extra=["--cpus-per-task=1"],
     )
     cluster.scale(n_workers)  # Scale to desired number of workers
     client = Client(cluster)  # Connect to the cluster
@@ -333,10 +332,10 @@ def main():
     parser.add_argument("--download_dir", type=str, default="sampled_data")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--n_workers", type=int, default=16, help="Number of Dask workers"
+        "--n_workers", type=int, default=32, help="Number of Dask workers"
     )
     parser.add_argument(
-        "--memory_per_worker", type=str, default="16GB", help="Memory per worker"
+        "--memory_per_worker", type=str, default="4GB", help="Memory per worker"
     )
     args = parser.parse_args()
 
