@@ -28,14 +28,14 @@ logger = logging.getLogger("reddit_sampler")
 
 def get_all_jsonl_files(directory: str) -> List[str]:
     """
-    Retrieve all .jsonl files from a given directory (non-recursive).
+    Retrieve all .jsonl files from a given directory and its subdirectories (recursive).
     """
-    return [
-        os.path.join(directory, f)
-        for f in os.listdir(directory)
-        if f.startswith("RS_") and not os.path.isdir(os.path.join(directory, f))
-    ]
-
+    jsonl_files = []
+    for root, dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("RS_"):
+                jsonl_files.append(os.path.join(root, f))
+    return jsonl_files
 
 def count_lines(file_path: str) -> int:
     """Count lines in a file efficiently."""
