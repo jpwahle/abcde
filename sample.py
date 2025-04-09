@@ -4,12 +4,22 @@ import json
 import random
 import argparse
 import requests
-from typing import Dict, Any, Generator, List, Optional
+from typing import Dict, Any, Generator, List, Optional, Tuple
 from tqdm import tqdm
 import dask.bag as db
-from dask.distributed import Client
+from dask.distributed import Client, progress
 from dask_jobqueue import SLURMCluster
+from dask.diagnostics import ProgressBar
+import math
+import logging
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+logger = logging.getLogger("reddit_sampler")
 
 # --------------- #
 # STAGE 1: LOADING & SAMPLING
@@ -19,7 +29,6 @@ from dask_jobqueue import SLURMCluster
 def get_all_jsonl_files(directory: str) -> List[str]:
     """
     Retrieve all .jsonl files from a given directory (non-recursive).
-    Adjust if you want recursion or a custom pattern.
     """
     return [
         os.path.join(directory, f)
@@ -28,10 +37,14 @@ def get_all_jsonl_files(directory: str) -> List[str]:
     ]
 
 
+def count_lines(file_path: str) -> int:
+    """Count lines in a file efficiently."""
+    with open(file_path, "rb") as f:
+        return sum(1 for _ in f)
+
+
 def stream_jsonl(file_path: str) -> Generator[Dict[str, Any], None, None]:
-    """
-    Given a .jsonl file path, yield each line as a Python dict.
-    """
+    """Given a .jsonl file path, yield each line as a Python dict."""
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -43,44 +56,48 @@ def stream_jsonl(file_path: str) -> Generator[Dict[str, Any], None, None]:
                 continue
 
 
-def reservoir_sample(
-    files: List[str], n_samples: int, seed: int = 42
+def stream_jsonl_with_probability(
+    file_path: str, sample_probability: float, seed: int
 ) -> Generator[Dict[str, Any], None, None]:
     """
-    Perform reservoir sampling across multiple .jsonl files.
-    This yields exactly n_samples items, i.i.d. from all lines combined.
-
-    If the total number of lines across all files is smaller than n_samples,
-    you will simply yield all of them (but that’s unlikely in a huge dataset).
+    Stream items from a JSONL file, yielding each with the given probability.
+    This implements i.i.d. sampling directly during the stream.
     """
-    random.seed(seed)
-    reservoir = []
-    total_count = 0
+    random_gen = random.Random(seed)
+    for item in stream_jsonl(file_path):
+        if random_gen.random() < sample_probability:
+            yield item
 
-    # Use tqdm to show progress across all files
-    for fp in tqdm(files, desc="Reading files for reservoir sampling"):
-        # Because we don't know how many lines are in each file,
-        # we can wrap the line iteration in another tqdm, but we’ll only see
-        # indefinite progress. Alternatively, you can omit it or do a first pass
-        # to count lines. We'll show it just as an example:
-        for entry in tqdm(
-            stream_jsonl(fp), desc=f"Lines in {os.path.basename(fp)}", leave=False
-        ):
-            total_count += 1
-            if len(reservoir) < n_samples:
-                reservoir.append(entry)
-            else:
-                # Replace items with gradually decreasing probability
-                r = random.randint(0, total_count - 1)
-                if r < n_samples:
-                    reservoir[r] = entry
 
-    # Shuffle once more to ensure randomness within the reservoir
-    random.shuffle(reservoir)
+def sample_file_with_percentage(
+    file_path: str,
+    sample_percentage: float,
+    split: str,
+    min_words: int,
+    max_words: int,
+    download_dir: str,
+    seed: int,
+) -> List[Dict[str, Any]]:
+    """
+    Sample a percentage of entries from a single file, then filter and process them.
+    Returns a list of processed entries that pass all filters.
+    """
+    # Convert percentage to probability (0-1 range)
+    sample_probability = sample_percentage / 100.0
 
-    # Convert the final reservoir list into a generator
-    for item in reservoir:
-        yield item
+    # Add some randomness to the seed based on the filename to prevent correlation across files
+    file_seed = seed + hash(file_path) % 10000
+
+    results = []
+    # Sample entries with the given probability
+    for entry in stream_jsonl_with_probability(
+        file_path, sample_probability, file_seed
+    ):
+        processed = process_entry(entry, split, min_words, max_words, download_dir)
+        if processed:
+            results.append(processed)
+
+    return results
 
 
 # --------------- #
@@ -96,13 +113,6 @@ def filter_entry(
 ) -> bool:
     """
     Return True if this entry passes all filters, else False.
-
-    - If `split` == 'text', ensure no images/videos.
-    - If `split` == 'multimodal', ensure there's an image or a video link.
-    - Remove adult content (over_18=True).
-    - Remove entries marked as promoted or ads.
-    - Remove entries with only a title but empty selftext.
-    - Remove entries outside the word count range.
     """
     # 1. Over 18 check
     if entry.get("over_18", False):
@@ -115,7 +125,6 @@ def filter_entry(
         return False
 
     # 3. Title + selftext checks
-    title = entry.get("title", "")
     selftext = entry.get("selftext", "")
     # Remove if there's no body text
     if not selftext.strip():
@@ -146,19 +155,13 @@ def filter_entry(
 
 
 def verify_media_availability(entry: Dict[str, Any]) -> bool:
-    """
-    Attempt to do a HEAD request for the image/video and see if it’s accessible.
-    If not accessible, return False. Otherwise True.
-    """
+    """Verify media accessibility with HEAD request."""
     url = entry.get("url", "")
     if not url:
-        # If no URL, it might be okay for text-only, but for multimodal,
-        # we presumably want a URL. We'll handle that logic in filter_entry.
         return True
 
     try:
         resp = requests.head(url, timeout=5)
-        # Accept 200 or 302, etc.  Adjust as needed.
         return resp.status_code in (200, 302)
     except requests.RequestException:
         return False
@@ -170,24 +173,23 @@ def verify_media_availability(entry: Dict[str, Any]) -> bool:
 
 
 def download_media(entry: Dict[str, Any], out_dir: str) -> Optional[str]:
-    """
-    Download the image or video to `out_dir`, return local file path,
-    or None if download fails or if there's no media.
-
-    This is a minimal example. In practice, you might differentiate images vs. videos
-    and store them in different subdirs. Also verify MIME type, handle chunked downloads, etc.
-    """
+    """Download media to out_dir and return local file path."""
     url = entry.get("url", "")
     if not url:
         return None
 
-    # Decide on file extension
-    filename = url.split("/")[-1]  # naive approach
+    # Decide on file extension and name
+    filename = f"{entry.get('id', 'unknown')}_{url.split('/')[-1]}"  # Add ID to avoid collisions
+
     # Example subdirectory logic:
     subdir = "videos" if entry.get("is_video", False) else "images"
     os.makedirs(os.path.join(out_dir, subdir), exist_ok=True)
 
     local_path = os.path.join(out_dir, subdir, filename)
+
+    # Skip if already downloaded
+    if os.path.exists(local_path):
+        return local_path
 
     try:
         resp = requests.get(url, timeout=10)
@@ -207,9 +209,7 @@ def download_media(entry: Dict[str, Any], out_dir: str) -> Optional[str]:
 def extract_columns(
     entry: Dict[str, Any], local_media_path: Optional[str]
 ) -> Dict[str, Any]:
-    """
-    From the raw Reddit entry, pick out the columns we want, plus the local media path if any.
-    """
+    """Extract required columns from the entry."""
     return {
         "id": entry.get("id"),
         "title": entry.get("title", "").strip(),
@@ -218,38 +218,20 @@ def extract_columns(
         "subreddit_id": entry.get("subreddit_id", ""),
         "num_comments": entry.get("num_comments", 0),
         "score": entry.get("score", 0),
-        "external_url": entry.get("url", ""),  # or domain, etc.
+        "external_url": entry.get("url", ""),
         "author_name": entry.get("author", "[deleted]"),
         "author_id": entry.get("author_id", None),
-        # Add local media path and direct link (if any):
         "local_media_path": local_media_path,
     }
-
-
-def reservoir_sample_chunk(
-    entries: List[Dict[str, Any]], n_samples: int, seed: int
-) -> List[Dict[str, Any]]:
-    """Perform reservoir sampling on a chunk of entries."""
-    random.seed(seed)
-    reservoir = []
-    total_count = 0
-    for entry in entries:
-        total_count += 1
-        if len(reservoir) < n_samples:
-            reservoir.append(entry)
-        else:
-            r = random.randint(0, total_count - 1)
-            if r < n_samples:
-                reservoir[r] = entry
-    return reservoir
 
 
 def process_entry(
     entry: Dict[str, Any], split: str, min_words: int, max_words: int, download_dir: str
 ) -> Optional[Dict[str, Any]]:
-    """Process a single entry: filter, verify media (if needed), download (if needed), and extract columns."""
+    """Process a single entry: filter, verify media, download, and extract columns."""
     if not filter_entry(entry, split, min_words, max_words):
         return None
+
     if split == "multimodal":
         if not verify_media_availability(entry):
             return None
@@ -258,98 +240,218 @@ def process_entry(
             return None
     else:
         local_path = None
+
     return extract_columns(entry, local_path)
 
 
-def process_reddit_data_dask(
+# --------------- #
+# MAIN PROCESSING FUNCTION
+# --------------- #
+
+
+def process_reddit_data_dask_percentage(
     input_dir: str,
     output_jsonl: str,
     split: str,
-    n_samples: int,
+    sample_percentage: float,
     min_words: int,
     max_words: int,
     download_dir: str = "sampled_data",
     seed: int = 42,
-    n_workers: int = 64,
-    memory_per_worker: str = "16GB",
+    n_workers: int = 16,
+    memory_per_worker: str = "4GB",
+    use_slurm: bool = False,
+    max_samples: Optional[int] = None,
 ):
-    # Set up SLURM cluster
-    cluster = SLURMCluster(
-        cores=1,  # 1 core per worker
-        processes=1,  # 1 process per worker
-        memory=memory_per_worker,
-        walltime="1-06:00:00",
-        job_extra=["--cpus-per-task=1"],
-    )
-    cluster.scale(n_workers)  # Scale to desired number of workers
-    client = Client(cluster)  # Connect to the cluster
-    print(f"Dask dashboard available at: {client.dashboard_link}")
+    """
+    Process Reddit data using Dask, sampling a percentage of the dataset i.i.d.
 
-    # Step 1: Gather all JSONL files
+    Args:
+        input_dir: Directory containing RS_*.jsonl files
+        output_jsonl: Path to output JSONL file
+        split: Either 'text' or 'multimodal'
+        sample_percentage: Percentage of data to sample (0-100)
+        min_words, max_words: Word count filters
+        download_dir: Directory for downloaded media (if multimodal)
+        seed: Random seed for reproducibility
+        n_workers: Number of Dask workers
+        memory_per_worker: Memory per worker
+        use_slurm: Whether to use a SLURM cluster
+        max_samples: Optional cap on the total number of samples
+    """
+    os.makedirs(
+        os.path.dirname(output_jsonl) if os.path.dirname(output_jsonl) else ".",
+        exist_ok=True,
+    )
+    os.makedirs(download_dir, exist_ok=True)
+
+    # Step 1: Set up Dask client
+    if use_slurm:
+        # Set up SLURM cluster
+        logger.info(f"Setting up SLURM cluster with {n_workers} workers")
+        cluster = SLURMCluster(
+            cores=1,  # 1 core per worker
+            processes=1,  # 1 process per worker
+            memory=memory_per_worker,
+            walltime="1-00:00:00",  # 1 day
+            job_extra=["--cpus-per-task=1"],
+        )
+        cluster.scale(n_workers)  # Scale to desired number of workers
+        client = Client(cluster)
+    else:
+        # Set up local cluster
+        logger.info(f"Setting up local Dask cluster with {n_workers} workers")
+        client = Client(
+            n_workers=n_workers, threads_per_worker=1, memory_limit=memory_per_worker
+        )
+
+    logger.info(f"Dask dashboard available at: {client.dashboard_link}")
+
+    # Step 2: Gather all JSONL files
+    logger.info(f"Finding JSONL files in {input_dir}")
     files = get_all_jsonl_files(input_dir)
     if not files:
         raise ValueError(f"No RS_*.jsonl files found in directory: {input_dir}")
+    logger.info(f"Found {len(files)} JSONL files")
 
-    # Step 2: Create a Dask Bag from the files
-    bag = db.from_sequence(files).map(lambda fp: list(stream_jsonl(fp))).flatten()
+    # Step 3: Create a Dask bag from the files and process each file
+    # We'll map the sampling function to each file
+    bag = db.from_sequence(files)
 
-    # Step 3: Filter and process entries in parallel
+    # Map the sampling function to each file
     processed_bag = bag.map(
-        lambda entry: process_entry(entry, split, min_words, max_words, download_dir)
-    ).filter(lambda x: x is not None)
+        lambda file_path: sample_file_with_percentage(
+            file_path=file_path,
+            sample_percentage=sample_percentage,
+            split=split,
+            min_words=min_words,
+            max_words=max_words,
+            download_dir=download_dir,
+            seed=seed,
+        )
+    ).flatten()
 
-    # Step 4: Perform reservoir sampling on the processed entries
-    # Since reservoir sampling is inherently sequential, we’ll approximate it by sampling chunks
-    chunk_size = n_samples // n_workers + 1
-    sampled_bag = processed_bag.repartition(n_workers).map_partitions(
-        lambda part: reservoir_sample_chunk(list(part), chunk_size, seed)
-    )
-    sampled_entries = sampled_bag.flatten().take(
-        n_samples, npartitions=-1
-    )  # Take final n_samples
+    # If max_samples is specified, we need to limit the number of samples
+    if max_samples is not None:
+        # First get count of sampled entries
+        with ProgressBar():
+            total_sampled = processed_bag.count().compute()
 
-    # Step 5: Write to JSONL
-    os.makedirs(os.path.dirname(output_jsonl), exist_ok=True)
+        logger.info(f"Total sampled entries before cap: {total_sampled}")
+
+        if total_sampled > max_samples:
+            # Take a random subset of the sampled entries
+            # We repartition to ensure randomness across all entries
+            processed_bag = processed_bag.random_sample(
+                max_samples / total_sampled, random_state=seed
+            )
+
+    # Compute the results
+    logger.info("Processing data with Dask...")
+    with ProgressBar():
+        results = processed_bag.compute()
+
+    # Flatten results if needed
+    if isinstance(results, list) and results and isinstance(results[0], list):
+        results = [item for sublist in results for item in sublist]
+
+    # Write to JSONL
+    logger.info(f"Writing {len(results)} entries to {output_jsonl}")
     with open(output_jsonl, "w", encoding="utf-8") as out_f:
-        for entry in tqdm(sampled_entries, desc="Writing to disk", total=n_samples):
+        for entry in tqdm(results, desc="Writing to output"):
             out_f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    print(f"Finished writing {len(sampled_entries)} entries to {output_jsonl}")
+    logger.info(f"Sampling complete! ✓")
+    logger.info(f"Output file: {output_jsonl}")
+    if split == "multimodal":
+        logger.info(f"Media downloaded to: {download_dir}")
+
+    # Clean up
     client.close()
-    cluster.close()
+    if use_slurm:
+        cluster.close()
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input_dir", type=str, required=True)
-    parser.add_argument("--output_jsonl", type=str, required=True)
-    parser.add_argument(
-        "--split", type=str, choices=["text", "multimodal"], default="text"
-    )
-    parser.add_argument("--n_samples", type=int, default=3_000_000)
-    parser.add_argument("--min_words", type=int, default=5)
-    parser.add_argument("--max_words", type=int, default=200)
-    parser.add_argument("--download_dir", type=str, default="sampled_data")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--n_workers", type=int, default=32, help="Number of Dask workers"
+    parser = argparse.ArgumentParser(
+        description="Sample a percentage of Reddit data using Dask"
     )
     parser.add_argument(
-        "--memory_per_worker", type=str, default="4GB", help="Memory per worker"
+        "--input_dir",
+        type=str,
+        required=True,
+        help="Directory containing RS_*.jsonl files",
     )
+    parser.add_argument(
+        "--output_jsonl", type=str, required=True, help="Output JSONL file path"
+    )
+    parser.add_argument(
+        "--split",
+        type=str,
+        choices=["text", "multimodal"],
+        default="text",
+        help="Whether to sample text-only or multimodal content",
+    )
+    parser.add_argument(
+        "--sample_percentage",
+        type=float,
+        default=1.0,
+        help="Percentage of data to sample (0-100)",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="Optional cap on total number of samples",
+    )
+    parser.add_argument("--min_words", type=int, default=5, help="Minimum word count")
+    parser.add_argument("--max_words", type=int, default=200, help="Maximum word count")
+    parser.add_argument(
+        "--download_dir",
+        type=str,
+        default="sampled_data",
+        help="Directory for downloaded media",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42, help="Random seed for reproducibility"
+    )
+    parser.add_argument(
+        "--n_workers", type=int, default=16, help="Number of Dask workers"
+    )
+    parser.add_argument(
+        "--memory_per_worker",
+        type=str,
+        default="4GB",
+        help="Memory per worker (e.g., '4GB')",
+    )
+    parser.add_argument(
+        "--use_slurm",
+        action="store_true",
+        help="Use SLURM cluster instead of local cluster",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
+    )
+
     args = parser.parse_args()
 
-    process_reddit_data_dask(
+    # Set logging level based on verbosity
+    if args.verbose:
+        logging.getLogger("reddit_sampler").setLevel(logging.DEBUG)
+
+    process_reddit_data_dask_percentage(
         input_dir=args.input_dir,
         output_jsonl=args.output_jsonl,
         split=args.split,
-        n_samples=args.n_samples,
+        sample_percentage=args.sample_percentage,
         min_words=args.min_words,
         max_words=args.max_words,
         download_dir=args.download_dir,
         seed=args.seed,
         n_workers=args.n_workers,
         memory_per_worker=args.memory_per_worker,
+        use_slurm=args.use_slurm,
+        max_samples=args.max_samples,
     )
 
 
