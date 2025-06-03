@@ -20,9 +20,8 @@
 # The *real* heavy lifting is handled by the dynamically allocated Dask workers.
 
 # Default parameters (can be overridden via --export)
-INPUT_FILE=${INPUT_FILE:-"/shared/tusc/tusc-country.parquet"}
+INPUT_FILE=${INPUT_FILE:-"/shared/tusc/tusc-city.parquet"}
 OUTPUT_DIR=${OUTPUT_DIR:-"/beegfs/wahle/github/abcde/outputs_tusc"}
-SPLIT=${SPLIT:-"country"}
 CHUNK_SIZE=10000
 N_WORKERS=256
 MEM_PER_WORKER=4GB
@@ -30,7 +29,6 @@ MEM_PER_WORKER=4GB
 echo "Starting TUSC processing pipeline (Two-Stage Approach)"
 echo "Input file: $INPUT_FILE"
 echo "Output directory: $OUTPUT_DIR"
-echo "Split type: $SPLIT"
 echo "Chunk size: $CHUNK_SIZE"
 echo "Number of workers: $N_WORKERS"
 echo "Memory per worker: $MEM_PER_WORKER"
@@ -71,11 +69,6 @@ STAGE1_ARGS=(
     --output_tsv
 )
 
-# Add split if specified (will be auto-determined if not)
-if [ -n "${SPLIT:-}" ]; then
-    STAGE1_ARGS+=(--split "$SPLIT")
-fi
-
 # Add test mode arguments if enabled
 if [ "$TEST_MODE" = "true" ]; then
     STAGE1_ARGS+=(--test_mode)
@@ -102,11 +95,6 @@ STAGE2_ARGS=(
     --use_slurm
     --output_tsv
 )
-
-# Add split if specified (will be auto-determined if not)
-if [ -n "${SPLIT:-}" ]; then
-    STAGE2_ARGS+=(--split "$SPLIT")
-fi
 
 # Add test mode arguments if enabled
 if [ "$TEST_MODE" = "true" ]; then

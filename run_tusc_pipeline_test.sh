@@ -23,16 +23,14 @@
 # Default parameters (can be overridden via --export)
 INPUT_FILE=${INPUT_FILE:-"/beegfs/wahle/datasets/tusc/tusc-country.parquet"}
 OUTPUT_DIR=${OUTPUT_DIR:-"/beegfs/wahle/github/abcde/outputs_tusc_test"}
-SPLIT=${SPLIT:-"country"}
 CHUNK_SIZE=1000
-N_WORKERS=16
+N_WORKERS=128
 MEM_PER_WORKER=4GB
-TEST_SAMPLES=16000
+TEST_SAMPLES=500000
 
 echo "Starting TUSC processing pipeline - TEST MODE (Two-Stage Approach)"
 echo "Input file: $INPUT_FILE"
 echo "Output directory: $OUTPUT_DIR"
-echo "Split type: $SPLIT"
 echo "Chunk size: $CHUNK_SIZE"
 echo "Number of workers: $N_WORKERS"
 echo "Memory per worker: $MEM_PER_WORKER"
@@ -67,11 +65,6 @@ STAGE1_ARGS=(
     --test_samples "$TEST_SAMPLES"
 )
 
-# Add split if specified (will be auto-determined if not)
-if [ -n "${SPLIT:-}" ]; then
-    STAGE1_ARGS+=(--split "$SPLIT")
-fi
-
 # Stage 1: Find self-identified users
 uv run python identify_self_users.py "${STAGE1_ARGS[@]}"
 
@@ -101,11 +94,6 @@ STAGE2_ARGS=(
     --test_mode
     --test_samples "$TEST_SAMPLES"
 )
-
-# Add split if specified (will be auto-determined if not)
-if [ -n "${SPLIT:-}" ]; then
-    STAGE2_ARGS+=(--split "$SPLIT")
-fi
 
 # Stage 2: Collect user posts and compute features
 uv run python collect_user_posts_tusc.py "${STAGE2_ARGS[@]}"

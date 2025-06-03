@@ -342,18 +342,32 @@ def run_tusc_pipeline(
 
         # Process partitions to find self-identified users
         def process_partition(df_partition):
-            """Process a single partition to find self-identified users."""
+            """Process a single partition to find self-identified users.
+
+            Returning a pandas.Series (object dtype) instead of a raw list allows
+            the Dask scheduler to concatenate the individual partition results
+            without tripping over unknown types during dispatch. Each series
+            contains a single element – the list of result dictionaries for
+            that particular partition.
+            """
             if df_partition.empty:
-                return []
-            return process_tusc_batch(df_partition, detector, split, min_words, max_words)
+                # Return an empty Series; keeps metadata consistent
+                return pd.Series([], dtype="object")
+
+            results_list = process_tusc_batch(df_partition, detector, split, min_words, max_words)
+
+            # Wrap the list in a single-row Series so that Dask receives a
+            # pandas object (it knows how to concatenate these), while we can
+            # still easily unpack the lists after .compute().
+            return pd.Series([results_list], dtype="object")
 
         # Apply processing function to each partition
         logger.info("Starting parallel processing...")
         with ProgressBar():
             # Process all partitions and collect results
             partition_results = ddf.map_partitions(
-                process_partition, 
-                meta=pd.Series([], dtype='object')
+                process_partition,
+                meta=pd.Series([], dtype="object")
             ).compute()
             
             # Flatten the list of lists
