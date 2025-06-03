@@ -1,5 +1,7 @@
 import re
-from typing import Dict, List, Pattern, Any
+from typing import Dict, List, Pattern, Any, Optional, Tuple
+from collections import Counter
+from datetime import datetime
 
 
 class SelfIdentificationDetector:
@@ -88,6 +90,106 @@ class SelfIdentificationDetector:
 
         return matches
 
+    def resolve_multiple_ages(self, age_matches: List[str], current_year: Optional[int] = None) -> Optional[Tuple[int, float]]:
+        """Resolve multiple age extractions using birth year normalization and majority vote.
+        
+        Parameters
+        ----------
+        age_matches : List[str]
+            List of extracted age strings (can be ages like "25" or birth years like "1998")
+        current_year : Optional[int]
+            Current year for birth year calculation. Defaults to current year.
+            
+        Returns
+        -------
+        Optional[Tuple[int, float]]
+            Tuple of (resolved_age, confidence_score) or None if no valid ages found.
+            Confidence ranges from 0.0 to 1.0.
+        """
+        if not age_matches:
+            return None
+            
+        if current_year is None:
+            current_year = datetime.now().year
+            
+        # Convert all age matches to estimated birth years with confidence weights
+        birth_year_candidates = []
+        
+        for age_str in age_matches:
+            try:
+                age_val = int(age_str)
+                
+                # Determine if this is a birth year or current age
+                if 1900 <= age_val <= current_year:
+                    # This is likely a birth year
+                    birth_year = age_val
+                    weight = 1.0  # High confidence for explicit birth years
+                elif 1 <= age_val <= 120:
+                    # This is likely a current age
+                    birth_year = current_year - age_val
+                    weight = 0.8  # Slightly lower confidence for calculated birth years
+                else:
+                    # Invalid age range
+                    continue
+                    
+                birth_year_candidates.append((birth_year, weight))
+                
+            except ValueError:
+                continue
+                
+        if not birth_year_candidates:
+            return None
+            
+        # Group birth years within ±2 years (clustering)
+        clusters = {}
+        for birth_year, weight in birth_year_candidates:
+            # Find existing cluster within ±2 years
+            cluster_key = None
+            for existing_key in clusters.keys():
+                if abs(birth_year - existing_key) <= 2:
+                    cluster_key = existing_key
+                    break
+                    
+            if cluster_key is None:
+                cluster_key = birth_year
+                clusters[cluster_key] = []
+                
+            clusters[cluster_key].append((birth_year, weight))
+            
+        # Select cluster with highest total weight (majority vote with confidence)
+        best_cluster = None
+        best_score = 0.0
+        
+        for cluster_center, cluster_members in clusters.items():
+            # Calculate cluster score: sum of weights * cluster size bonus
+            total_weight = sum(weight for _, weight in cluster_members)
+            cluster_size_bonus = len(cluster_members) * 0.1  # Small bonus for larger clusters
+            cluster_score = total_weight + cluster_size_bonus
+            
+            if cluster_score > best_score:
+                best_score = cluster_score
+                best_cluster = cluster_members
+                
+        if best_cluster is None:
+            return None
+            
+        # Calculate weighted average birth year within the best cluster
+        total_weight = sum(weight for _, weight in best_cluster)
+        weighted_birth_year = sum(birth_year * weight for birth_year, weight in best_cluster) / total_weight
+        
+        # Convert back to current age
+        resolved_age = current_year - int(round(weighted_birth_year))
+        
+        # Calculate confidence score (0.0 to 1.0)
+        max_possible_weight = len(age_matches) * 1.0  # If all were birth years
+        confidence = min(1.0, best_score / max_possible_weight)
+        
+        # Ensure reasonable age bounds
+        if not (1 <= resolved_age <= 120):
+            return None
+            
+        return (resolved_age, confidence)
+
 
 # Convenience function that merges title and body.
 
@@ -100,4 +202,39 @@ def detect_self_identification_in_entry(entry: Dict[str, Any], detector: "SelfId
     title = entry.get("title", "") or ""
     body = entry.get("selftext", "") or ""
     combined = f"{title}\n{body}"
-    return detector.detect(combined) 
+    return detector.detect(combined)
+
+
+def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector: "SelfIdentificationDetector") -> Dict[str, Any]:
+    """Detect self identification with age resolution for multiple age extractions.
+    
+    Parameters
+    ----------
+    entry : Dict[str, Any]
+        Reddit-style entry with title and body
+    detector : SelfIdentificationDetector
+        Detector instance
+        
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary with original matches plus resolved_age info:
+        {
+            "age": ["25", "1998"],  # original extractions
+            "resolved_age": {"age": 27, "confidence": 0.9, "raw_matches": ["25", "1998"]}
+        }
+    """
+    matches = detect_self_identification_in_entry(entry, detector)
+    
+    # If age matches found, resolve them
+    if "age" in matches:
+        age_resolution = detector.resolve_multiple_ages(matches["age"])
+        if age_resolution is not None:
+            resolved_age, confidence = age_resolution
+            matches["resolved_age"] = {
+                "age": resolved_age,
+                "confidence": confidence,
+                "raw_matches": matches["age"].copy()
+            }
+    
+    return matches 
