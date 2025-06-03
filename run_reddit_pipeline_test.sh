@@ -26,38 +26,38 @@
 # Pick split to test (text only is usually enough):
 SPLIT=text
 
-INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted/RS_2015-01
+INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted/RS_2010-01
+OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit_test
 
 # Number of Dask workers (keep low for testing)
-N_WORKERS=64
+N_WORKERS=16
 MEM_PER_WORKER=4GB
 
 set -euo pipefail
-mkdir -p logs
+mkdir -p $OUTPUT_DIR logs
 
-OUTPUT_DIR=${OUTPUT_DIR:-$(pwd)/outputs_test}
-mkdir -p "$OUTPUT_DIR"
-
-SELF_USERS_CSV=$OUTPUT_DIR/self_users_test.csv
-ALL_POSTS_CSV=$OUTPUT_DIR/self_users_posts_test.csv
+SELF_USERS_TSV=$OUTPUT_DIR/reddit_users_test.tsv
+ALL_POSTS_TSV=$OUTPUT_DIR/reddit_users_posts_test.tsv
 
 # ------------------ Stage 1 ---------------------------------------------
 uv run python identify_self_users.py \
   --input_dir "$INPUT_DIR" \
-  --output_csv "$SELF_USERS_CSV" \
+  --output_csv "$SELF_USERS_TSV" \
   --split "$SPLIT" \
   --n_workers $N_WORKERS \
   --memory_per_worker $MEM_PER_WORKER \
-  --use_slurm
+  --use_slurm \
+  --output_tsv
 
 # ------------------ Stage 2 ---------------------------------------------
 uv run python collect_user_posts.py \
   --input_dir "$INPUT_DIR" \
-  --self_identified_csv "$SELF_USERS_CSV" \
-  --output_csv "$ALL_POSTS_CSV" \
+  --self_identified_csv "$SELF_USERS_TSV" \
+  --output_csv "$ALL_POSTS_TSV" \
   --split "$SPLIT" \
   --n_workers $N_WORKERS \
   --memory_per_worker $MEM_PER_WORKER \
-  --use_slurm
+  --use_slurm \
+  --output_tsv
 
 echo "[$(date)] Test pipeline finished ✔" 

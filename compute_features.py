@@ -485,11 +485,11 @@ def compute_prefixed_body_part_mentions(
     """Compute MyBPM, YourBPM, etc. from text using body parts list."""
     if not isinstance(text, str):
         return {
-            "My BPM": "",
-            "Your BPM": "",
-            "Her BPM": "",
-            "His BPM": "",
-            "Their BPM": "",
+            "MyBPM": "",
+            "YourBPM": "",
+            "HerBPM": "",
+            "HisBPM": "",
+            "TheirBPM": "",
             "HasBPM": 0,
         }
 
@@ -497,11 +497,11 @@ def compute_prefixed_body_part_mentions(
 
     # Define prefixes and their labels for body parts
     prefixes_and_labels = [
-        ("my ", "My BPM"),
-        ("your ", "Your BPM"),
-        ("her ", "Her BPM"),
-        ("his ", "His BPM"),
-        ("their ", "Their BPM"),
+        ("my ", "MyBPM"),
+        ("your ", "YourBPM"),
+        ("her ", "HerBPM"),
+        ("his ", "HisBPM"),
+        ("their ", "TheirBPM"),
     ]
 
     results = {}
@@ -615,8 +615,7 @@ def compute_all_features(
     words = text.lower().split() if isinstance(text, str) else []
 
     # Load body parts if not provided
-    if body_parts is None:
-        body_parts = load_body_parts("data/bodywords-full.txt")
+    body_parts = load_body_parts("data/bodywords-full.txt")
 
     # Reuse compute_vad_and_emotions with all lexicons
     features = compute_vad_and_emotions(

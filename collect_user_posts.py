@@ -87,11 +87,13 @@ def flatten_post_to_csv_row(post_data: Dict[str, Any]) -> Dict[str, Any]:
         # Tense fields
         "TIMEHasPastVerb", "TIMECountPastVerbs", "TIMEHasPresentVerb", "TIMECountPresentVerbs",
         "TIMEHasFutureModal", "TIMECountFutureModals", "TIMEHasPresentNoFuture", "TIMEHasFutureReference",
-        # Personal pronoun fields
-        "PPHasFirstPersonPronoun", "PPCountFirstPersonPronouns", "PPHasSecondPersonPronoun", "PPCountSecondPersonPronouns",
-        "PPHasThirdPersonPronoun", "PPCountThirdPersonPronouns",
-        # Body part mention fields
-        "BPMHasBodyPartMention", "BPMCountBodyPartMentions",
+        # Body part mention fields (actual features from compute_prefixed_body_part_mentions)
+        "MyBPM", "YourBPM", "HerBPM", "HisBPM", "TheirBPM", "HasBPM",
+        # Individual pronoun fields (actual features from compute_individual_pronouns)
+        "PRNHasI", "PRNHasMe", "PRNHasMy", "PRNHasMine", "PRNHasWe", "PRNHasOur", "PRNHasOurs",
+        "PRNHasYou", "PRNHasYour", "PRNHasYours",
+        "PRNHasShe", "PRNHasHer", "PRNHasHers", "PRNHasHe", "PRNHasHim", "PRNHasHis",
+        "PRNHasThey", "PRNHasThem", "PRNHasTheir", "PRNHasTheirs",
     ]
     
     # Add all feature fields with default empty values
@@ -108,10 +110,17 @@ def load_user_ids(self_id_csv: str) -> Dict[str, int]:
     timestamp of that post to approximate a birth year. Keys are usernames.
     """
 
+    # Detect delimiter automatically – we support both comma-separated (.csv) and
+    # tab-separated (.tsv) files. This allows the downstream `collect_user_posts`
+    # script to work regardless of whether the previous self-identification
+    # stage was executed with the `--output_tsv` flag.
+
+    delimiter = "\t" if self_id_csv.lower().endswith(".tsv") else ","
+
     id_to_birth: Dict[str, int] = {}
 
     with open(self_id_csv, "r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, delimiter=delimiter)
         for record in reader:
             # Skip rows without age data
             age_str = record.get("SelfIdentificationAgeMajorityVote", "").strip()
@@ -326,11 +335,13 @@ def run_pipeline(
             # Tense features
             "TIMEHasPastVerb", "TIMECountPastVerbs", "TIMEHasPresentVerb", "TIMECountPresentVerbs",
             "TIMEHasFutureModal", "TIMECountFutureModals", "TIMEHasPresentNoFuture", "TIMEHasFutureReference",
-            # Personal pronoun features
-            "PPHasFirstPersonPronoun", "PPCountFirstPersonPronouns", "PPHasSecondPersonPronoun", "PPCountSecondPersonPronouns",
-            "PPHasThirdPersonPronoun", "PPCountThirdPersonPronouns",
             # Body part mention features
-            "BPMHasBodyPartMention", "BPMCountBodyPartMentions",
+            "MyBPM", "YourBPM", "HerBPM", "HisBPM", "TheirBPM", "HasBPM",
+            # Individual pronoun features
+            "PRNHasI", "PRNHasMe", "PRNHasMy", "PRNHasMine", "PRNHasWe", "PRNHasOur", "PRNHasOurs",
+            "PRNHasYou", "PRNHasYour", "PRNHasYours",
+            "PRNHasShe", "PRNHasHer", "PRNHasHers", "PRNHasHe", "PRNHasHim", "PRNHasHis",
+            "PRNHasThey", "PRNHasThem", "PRNHasTheir", "PRNHasTheirs",
         ]
         
         # Write to CSV or TSV
@@ -346,14 +357,19 @@ def run_pipeline(
                 writer.writerow(row)
     else:
         logger.warning("No results found. Creating empty CSV file.")
+        # Determine output file and separator for empty file case
+        separator = '\t' if output_tsv else ','
+        file_extension = 'tsv' if output_tsv else 'csv'
+        output_file = output_csv.replace('.csv', f'.{file_extension}') if output_tsv else output_csv
+        
         # Create empty CSV with headers
         fieldnames = [
             "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
             "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
             "AuthorName", "AuthorAge", "WordCount"
         ]
-        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        with open(output_file, "w", encoding="utf-8", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
             writer.writeheader()
 
     client.close()

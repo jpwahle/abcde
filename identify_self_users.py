@@ -192,13 +192,18 @@ def run_pipeline(
                 writer.writerow(row)
     else:
         logger.warning("No results found. Creating empty CSV file.")
-        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
+        # Determine output file and separator for empty file case
+        separator = '\t' if output_tsv else ','
+        file_extension = 'tsv' if output_tsv else 'csv'
+        output_file = output_csv.replace('.csv', f'.{file_extension}') if output_tsv else output_csv
+        
+        with open(output_file, "w", encoding="utf-8", newline="") as csvfile:
             fieldnames = [
                 "Author", "SelfIdentificationAgeMajorityVote", "SelfIdentificationRawAges", 
                 "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
                 "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath"
             ]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
             writer.writeheader()
 
     client.close()
