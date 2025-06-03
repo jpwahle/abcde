@@ -193,11 +193,243 @@ def compute_vad_and_emotions(
     socialwarmth_dict: Dict[str, int],
     warmth_dict: Dict[str, int],
 ):
-    # This is the exact implementation from the user – abbreviated here.
+    """
+    Compute various metrics from text:
+    - Average VAD scores (Valence, Arousal, Dominance)
+    - Presence and counts of High/Low VAD words
+    - Presence and counts of NRC Emotion words
+    - Word count
+    - Anxiety/Calmness (from the WorryWords lexicon)
+    - MoralTrust (from the NRC MoralTrust Lexicon)
+    - SocialWarmth (from the NRC SocialWarmth Lexicon)
+    - Warmth (from the NRC Warmth Lexicon)
+    """
     words = text.lower().split() if isinstance(text, str) else []
-    # ... (omitted for brevity – refer to the full code in the original prompt)
-    # For the sake of this initial implementation, we return a minimal stub:
-    return {"WordCount": len(words)}
+    
+    # VAD accumulators
+    vad_scores = {'valence': [], 'arousal': [], 'dominance': []}
+    high_vad_flags = {'valence': 0, 'arousal': 0, 'dominance': 0}
+    low_vad_flags = {'valence': 0, 'arousal': 0, 'dominance': 0}
+    high_vad_counts = {'valence': 0, 'arousal': 0, 'dominance': 0}
+    low_vad_counts = {'valence': 0, 'arousal': 0, 'dominance': 0}
+
+    # Emotion accumulators
+    emotion_counts = {emotion: 0 for emotion in emotions}
+    emotion_flags = {emotion: 0 for emotion in emotions}
+
+    # Anxiety/Calmness accumulators
+    sum_anxiety = 0
+    count_anxiety = 0
+    sum_calmness = 0
+    count_calmness = 0
+
+    # Flags for anxiety/calmness presence
+    has_anxiety_word = 0
+    has_calmness_word = 0
+
+    # High anxiety/calmness
+    has_high_anxiety_word = 0
+    count_high_anxiety_words = 0
+    has_high_calmness_word = 0
+    count_high_calmness_words = 0
+
+    # MoralTrust accumulators
+    sum_moraltrust = 0
+    count_moraltrust = 0
+    has_high_moraltrust_word = 0
+    count_high_moraltrust_words = 0
+    has_low_moraltrust_word = 0
+    count_low_moraltrust_words = 0
+
+    # SocialWarmth accumulators
+    sum_socialwarmth = 0
+    count_socialwarmth = 0
+    has_high_socialwarmth_word = 0
+    count_high_socialwarmth_words = 0
+    has_low_socialwarmth_word = 0
+    count_low_socialwarmth_words = 0
+
+    # Warmth accumulators
+    sum_warmth = 0
+    count_warmth = 0
+    has_high_warmth_word = 0
+    count_high_warmth_words = 0
+    has_low_warmth_word = 0
+    count_low_warmth_words = 0
+
+    for word in words:
+        # Add VAD scores
+        if word in vad_dict:
+            for dimension in vad_scores:
+                score = vad_dict[word][dimension]
+                vad_scores[dimension].append(score)
+
+                # Check for high and low thresholds
+                if score > 0.67:
+                    high_vad_flags[dimension] = 1
+                    high_vad_counts[dimension] += 1
+                if score < 0.33:
+                    low_vad_flags[dimension] = 1
+                    low_vad_counts[dimension] += 1
+
+        # Count emotion words
+        if word in emotion_dict:
+            for emotion in emotion_dict[word]:
+                emotion_flags[emotion] = 1
+                emotion_counts[emotion] += 1
+
+        # Check WorryWords (Anxiety/Calmness)
+        if worry_dict and word in worry_dict:
+            oc = worry_dict[word]
+            if oc > 0:  # anxious
+                has_anxiety_word = 1
+                sum_anxiety += oc
+                count_anxiety += 1
+                if oc == 3:
+                    has_high_anxiety_word = 1
+                    count_high_anxiety_words += 1
+            elif oc < 0:  # calm
+                has_calmness_word = 1
+                sum_calmness += oc
+                count_calmness += 1
+                if oc == -3:
+                    has_high_calmness_word = 1
+                    count_high_calmness_words += 1
+
+        # Check MoralTrust words
+        if moraltrust_dict and word in moraltrust_dict:
+            oc = moraltrust_dict[word]
+            sum_moraltrust += oc
+            count_moraltrust += 1
+            if oc == 3:
+                has_high_moraltrust_word = 1
+                count_high_moraltrust_words += 1
+            if oc == -3:
+                has_low_moraltrust_word = 1
+                count_low_moraltrust_words += 1
+
+        # Check SocialWarmth words
+        if socialwarmth_dict and word in socialwarmth_dict:
+            oc = socialwarmth_dict[word]
+            sum_socialwarmth += oc
+            count_socialwarmth += 1
+            if oc == 3:
+                has_high_socialwarmth_word = 1
+                count_high_socialwarmth_words += 1
+            if oc == -3:
+                has_low_socialwarmth_word = 1
+                count_low_socialwarmth_words += 1
+
+        # Check Warmth words
+        if warmth_dict and word in warmth_dict:
+            oc = warmth_dict[word]
+            sum_warmth += oc
+            count_warmth += 1
+            if oc == 3:
+                has_high_warmth_word = 1
+                count_high_warmth_words += 1
+            if oc == -3:
+                has_low_warmth_word = 1
+                count_low_warmth_words += 1
+
+    # Compute VAD averages
+    avg_vad_scores = {
+        f'NRCAvg{dimension.capitalize()}': sum(scores) / len(scores) if scores else 0
+        for dimension, scores in vad_scores.items()
+    }
+
+    # Emotion presence columns
+    emotion_columns = {
+        f'NRCHas{emotion.capitalize()}Word': flag
+        for emotion, flag in emotion_flags.items()
+    }
+
+    # Emotion count columns
+    emotion_count_columns = {
+        f'NRCCount{emotion.capitalize()}Words': count
+        for emotion, count in emotion_counts.items()
+    }
+
+    # High/Low VAD flags
+    vad_threshold_columns = {
+        f'NRCHasHigh{dimension.capitalize()}Word': high_vad_flags[dimension]
+        for dimension in high_vad_flags
+    }
+    vad_threshold_columns.update({
+        f'NRCHasLow{dimension.capitalize()}Word': low_vad_flags[dimension]
+        for dimension in low_vad_flags
+    })
+
+    # High/Low VAD counts
+    vad_count_columns = {
+        f'NRCCountHigh{dimension.capitalize()}Words': high_vad_counts[dimension]
+        for dimension in high_vad_counts
+    }
+    vad_count_columns.update({
+        f'NRCCountLow{dimension.capitalize()}Words': low_vad_counts[dimension]
+        for dimension in low_vad_counts
+    })
+
+    # Word count
+    word_count_column = {'WordCount': len(words)}
+
+    # Anxiety/Calmness averages
+    avg_anxiety = sum_anxiety / count_anxiety if count_anxiety > 0 else 0
+    avg_calmness = sum_calmness / count_calmness if count_calmness > 0 else 0
+
+    worry_columns = {
+        'NRCHasAnxietyWord': has_anxiety_word,
+        'NRCHasCalmnessWord': has_calmness_word,
+        'NRCAvgAnxiety': avg_anxiety,
+        'NRCAvgCalmness': avg_calmness,
+        'NRCHasHighAnxietyWord': has_high_anxiety_word,
+        'NRCCountHighAnxietyWords': count_high_anxiety_words,
+        'NRCHasHighCalmnessWord': has_high_calmness_word,
+        'NRCCountHighCalmnessWords': count_high_calmness_words
+    }
+
+    # MoralTrust columns
+    avg_moraltrust = sum_moraltrust / count_moraltrust if count_moraltrust > 0 else 0
+    moraltrust_columns = {
+        'NRCHasHighMoralTrustWord': has_high_moraltrust_word,
+        'NRCCountHighMoralTrustWord': count_high_moraltrust_words,
+        'NRCHasLowMoralTrustWord': has_low_moraltrust_word,
+        'NRCCountLowMoralTrustWord': count_low_moraltrust_words,
+        'NRCAvgMoralTrustWord': avg_moraltrust
+    }
+
+    # SocialWarmth columns
+    avg_socialwarmth = sum_socialwarmth / count_socialwarmth if count_socialwarmth > 0 else 0
+    socialwarmth_columns = {
+        'NRCHasHighSocialWarmthWord': has_high_socialwarmth_word,
+        'NRCCountHighSocialWarmthWord': count_high_socialwarmth_words,
+        'NRCHasLowSocialWarmthWord': has_low_socialwarmth_word,
+        'NRCCountLowSocialWarmthWord': count_low_socialwarmth_words,
+        'NRCAvgSocialWarmthWord': avg_socialwarmth
+    }
+
+    # Warmth columns
+    avg_warmth = sum_warmth / count_warmth if count_warmth > 0 else 0
+    warmth_columns = {
+        'NRCHasHighWarmthWord': has_high_warmth_word,
+        'NRCCountHighWarmthWord': count_high_warmth_words,
+        'NRCHasLowWarmthWord': has_low_warmth_word,
+        'NRCCountLowWarmthWord': count_low_warmth_words,
+        'NRCAvgWarmthWord': avg_warmth
+    }
+
+    return {
+        **avg_vad_scores,
+        **vad_threshold_columns,
+        **emotion_columns,
+        **emotion_count_columns,
+        **vad_count_columns,
+        **word_count_column,
+        **worry_columns,
+        **moraltrust_columns,
+        **socialwarmth_columns,
+        **warmth_columns,
+    }
 
 
 def compute_all_features(
@@ -211,8 +443,20 @@ def compute_all_features(
     socialwarmth_dict: Dict[str, int] = socialwarmth_dict,
     warmth_dict: Dict[str, int] = warmth_dict,
 ) -> Dict[str, Any]:
-    # Minimal viable implementation – replace with full implementation as needed
-    return compute_vad_and_emotions(
+    """
+    Compute all features including:
+    - VAD and emotion (from previous code)
+    - Anxiety and Calmness (from previous code)
+    - Moral Trust
+    - Social Warmth
+    - Warmth
+    - Tense-related features (prefixed with TIME)
+    - Personal pronouns and body part mentions
+    """
+    words = text.lower().split() if isinstance(text, str) else []
+
+    # Reuse compute_vad_and_emotions with all lexicons
+    features = compute_vad_and_emotions(
         text,
         vad_dict,
         emotion_dict,
@@ -220,5 +464,77 @@ def compute_all_features(
         worry_dict,
         moraltrust_dict,
         socialwarmth_dict,
-        warmth_dict,
-    ) 
+        warmth_dict
+    )
+
+    # Tense-related features
+    past_count = 0
+    present_count = 0
+    future_modals = {'will', 'shall', 'should', 'going to'}
+    future_modal_count = 0
+
+    for w in words:
+        # Check future modals directly
+        if w in future_modals:
+            future_modal_count += 1
+
+        # Check tense_dict if available
+        if tense_dict and w in tense_dict:
+            for tag in tense_dict[w]:
+                # Check for past tense
+                if 'PST' in tag:
+                    past_count += 1
+                # Check for present tense
+                elif 'PRS' in tag:
+                    present_count += 1
+
+    # Check for future time reference words
+    future_time_words = {"tomorrow", "next day", "next year", "next month"}
+    joined_text = " ".join(words)
+    has_future_time_reference = any(phrase in joined_text for phrase in future_time_words)
+
+    # Personal pronouns
+    first_person_pronouns = {'i', 'me', 'my', 'mine', 'myself'}
+    second_person_pronouns = {'you', 'your', 'yours', 'yourself', 'yourselves'}
+    third_person_pronouns = {'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves'}
+    
+    first_person_count = sum(1 for w in words if w in first_person_pronouns)
+    second_person_count = sum(1 for w in words if w in second_person_pronouns)
+    third_person_count = sum(1 for w in words if w in third_person_pronouns)
+
+    # Body part mentions (load from data file if available)
+    body_parts_count = 0
+    try:
+        with open('data/bodywords-full.txt', 'r', encoding='utf-8') as f:
+            body_words = {line.strip().lower() for line in f if line.strip()}
+        body_parts_count = sum(1 for w in words if w in body_words)
+    except FileNotFoundError:
+        # Fallback to basic body parts if file not available
+        basic_body_parts = {'head', 'face', 'eye', 'nose', 'mouth', 'ear', 'neck', 'shoulder', 'arm', 'hand', 'finger', 'chest', 'back', 'stomach', 'leg', 'foot', 'toe', 'heart', 'brain', 'body'}
+        body_parts_count = sum(1 for w in words if w in basic_body_parts)
+
+    features.update({
+        # Tense features
+        'TIMEHasPastVerb': 1 if past_count > 0 else 0,
+        'TIMECountPastVerbs': past_count,
+        'TIMEHasPresentVerb': 1 if present_count > 0 else 0,
+        'TIMECountPresentVerbs': present_count,
+        'TIMEHasFutureModal': 1 if future_modal_count > 0 else 0,
+        'TIMECountFutureModals': future_modal_count,
+        'TIMEHasPresentNoFuture': 1 if (present_count > 0 and future_modal_count == 0) else 0,
+        'TIMEHasFutureReference': 1 if has_future_time_reference else 0,
+        
+        # Personal pronoun features
+        'PPHasFirstPersonPronoun': 1 if first_person_count > 0 else 0,
+        'PPCountFirstPersonPronouns': first_person_count,
+        'PPHasSecondPersonPronoun': 1 if second_person_count > 0 else 0,
+        'PPCountSecondPersonPronouns': second_person_count,
+        'PPHasThirdPersonPronoun': 1 if third_person_count > 0 else 0,
+        'PPCountThirdPersonPronouns': third_person_count,
+        
+        # Body part mentions
+        'BPMHasBodyPartMention': 1 if body_parts_count > 0 else 0,
+        'BPMCountBodyPartMentions': body_parts_count,
+    })
+
+    return features 

@@ -13,15 +13,22 @@ class SelfIdentificationDetector:
         # Build and compile the detection regexes only once during init.
         self.patterns: Dict[str, List[Pattern[str]]] = {
             # --- AGE --------------------------------------------------------
-            # I am 24 years old / I am 24.
             "age": [
-                re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,3})\s+years?\s+old\b", re.I),
-                # I am 24 / I'm 24 (only followed by age-related words or sentence boundaries)
-                re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,3})(?=\s+(?:years?(?:\s+old|-old)?|yo|yrs?)\b|\s*[.!?;,]|\s*$)", re.I),
-                # I was born in 1998 / I am born in 1998.
-                re.compile(r"\bI\s+(?:was|am|'m)\s+born\s+in\s+(\d{2,4})\b", re.I),
-                # I was born on 14 July 1992.
-                re.compile(r"\bI\s+was\s+born\s+on\s+\d{1,2}\s+\w+\s+(\d{4})\b", re.I),
+                # I am 24 years old / I'm 25 years old
+                re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,2})\s+years?\s+old\b", re.I),
+                # I am 24 / I'm 24 (only followed by age-related words or sentence boundaries, no symbols)
+                re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,2})(?=\s+(?:years?(?:\s+old|-old)?|yo|yrs?)\b|\s*[.!?;,]|\s*$)(?!\s*[%$#@&*+=<>()[\]{}|\\~`^_])", re.I),
+                # I was born in 1998 / I am born in 1998 (4-digit birth years)
+                re.compile(r"\bI\s+(?:was|am|'m)\s+born\s+in\s+(19\d{2}|20\d{2})\b", re.I),
+                # I was born on 14 July 1992 (birth year from date)
+                re.compile(r"\bI\s+was\s+born\s+on\s+\d{1,2}\s+\w+\s+(19\d{2}|20\d{2})\b", re.I),
+                # Additional age patterns
+                # I'm turning 25 / I turn 25
+                re.compile(r"\bI\s+(?:'m\s+turning|turn|turned)\s+(\d{1,2})(?=\s*[.!?;,]|\s*$)(?!\s*[%$#@&*+=<>()[\]{}|\\~`^_])", re.I),
+                # At 24 / At age 24
+                re.compile(r"\bat\s+(?:age\s+)?(\d{1,2})(?=\s*[.!?;,]|\s*$)(?!\s*[%$#@&*+=<>()[\]{}|\\~`^_])", re.I),
+                # 24M / 24F / 24m / 24f (age with gender)
+                re.compile(r"\b(\d{1,2})[MFmf]\b", re.I),
             ],
             # # TODO: Extract Gender, Location, Profession, Religion, etc. using lists
             # # --- GENDER -----------------------------------------------------
