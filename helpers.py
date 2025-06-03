@@ -218,7 +218,6 @@ def extract_columns(entry: Dict[str, Any], local_media_path: Optional[str]) -> D
         "created_utc": entry.get("created_utc"),
         "score": entry.get("score"),
         "num_comments": entry.get("num_comments"),
-        "upvote_ratio": entry.get("upvote_ratio"),
         "author": entry.get("author"),
         "permalink": entry.get("permalink"),
         "url": entry.get("url"),

@@ -29,7 +29,7 @@ def _load_lexicon(
     accumulate: bool = False,
 ) -> Dict[str, Any]:
     """Generic lexicon loader that handles most common patterns.
-    
+
     Args:
         filename: Name of the file in the data directory
         key_col: Column index for the key (default: 0)
@@ -43,24 +43,24 @@ def _load_lexicon(
     lines = _safe_read(_data_dir / filename)
     if skip_header and lines:
         lines = lines[1:]
-    
+
     if value_type == "set" and accumulate:
         result = defaultdict(set)
     elif value_type == "list" and accumulate:
         result = defaultdict(list)
     else:
         result = {}
-    
+
     for line in lines:
         if not line or "\t" not in line:
             continue
         parts = line.split("\t")
         if len(parts) <= max(key_col, value_col):
             continue
-            
+
         key = key_transform(parts[key_col])
         raw_value = value_transform(parts[value_col])
-        
+
         if value_type == "int":
             value = int(raw_value)
         elif value_type == "float":
@@ -77,13 +77,14 @@ def _load_lexicon(
             continue
         else:
             value = raw_value
-            
+
         result[key] = value
-    
+
     return result
 
 
 # --- VAD LEXICON (special case - needs nested dict) ------------------
+
 
 def _load_nrc_vad_lexicon() -> Dict[str, Dict[str, float]]:
     """VAD lexicon needs special handling for nested dict structure."""
@@ -102,6 +103,7 @@ def _load_nrc_vad_lexicon() -> Dict[str, Dict[str, float]]:
 
 # --- EMOTION LEXICON (special case - needs condition check) -----------
 
+
 def _load_nrc_emotion_lexicon() -> Dict[str, set]:
     """Emotion lexicon needs special handling for conditional inclusion."""
     emotion_dict = defaultdict(set)
@@ -116,8 +118,11 @@ def _load_nrc_emotion_lexicon() -> Dict[str, set]:
 
 # --- ALL OTHER LEXICONS (using generic loader) -----------------------
 
+
 def _load_nrc_worrywords_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-WorryWords-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-WorryWords-Lexicon.txt", skip_header=True, value_type="int"
+    )
 
 
 def _load_eng_tenses_lexicon() -> Dict[str, List[str]]:
@@ -126,20 +131,26 @@ def _load_eng_tenses_lexicon() -> Dict[str, List[str]]:
         key_col=1,  # form column
         value_col=2,  # tags column
         value_type="list",
-        accumulate=True
+        accumulate=True,
     )
 
 
 def _load_nrc_moraltrust_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-MoralTrustworthy-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-MoralTrustworthy-Lexicon.txt", skip_header=True, value_type="int"
+    )
 
 
 def _load_nrc_socialwarmth_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-SocialWarmth-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-SocialWarmth-Lexicon.txt", skip_header=True, value_type="int"
+    )
 
 
 def _load_nrc_warmth_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-CombinedWarmth-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-CombinedWarmth-Lexicon.txt", skip_header=True, value_type="int"
+    )
 
 
 # Publicly exposed lexicons (attempted to load on import – fall back to empty)
@@ -205,13 +216,13 @@ def compute_vad_and_emotions(
     - Warmth (from the NRC Warmth Lexicon)
     """
     words = text.lower().split() if isinstance(text, str) else []
-    
+
     # VAD accumulators
-    vad_scores = {'valence': [], 'arousal': [], 'dominance': []}
-    high_vad_flags = {'valence': 0, 'arousal': 0, 'dominance': 0}
-    low_vad_flags = {'valence': 0, 'arousal': 0, 'dominance': 0}
-    high_vad_counts = {'valence': 0, 'arousal': 0, 'dominance': 0}
-    low_vad_counts = {'valence': 0, 'arousal': 0, 'dominance': 0}
+    vad_scores = {"valence": [], "arousal": [], "dominance": []}
+    high_vad_flags = {"valence": 0, "arousal": 0, "dominance": 0}
+    low_vad_flags = {"valence": 0, "arousal": 0, "dominance": 0}
+    high_vad_counts = {"valence": 0, "arousal": 0, "dominance": 0}
+    low_vad_counts = {"valence": 0, "arousal": 0, "dominance": 0}
 
     # Emotion accumulators
     emotion_counts = {emotion: 0 for emotion in emotions}
@@ -334,88 +345,94 @@ def compute_vad_and_emotions(
 
     # Compute VAD averages
     avg_vad_scores = {
-        f'NRCAvg{dimension.capitalize()}': sum(scores) / len(scores) if scores else 0
+        f"NRCAvg{dimension.capitalize()}": sum(scores) / len(scores) if scores else 0
         for dimension, scores in vad_scores.items()
     }
 
     # Emotion presence columns
     emotion_columns = {
-        f'NRCHas{emotion.capitalize()}Word': flag
+        f"NRCHas{emotion.capitalize()}Word": flag
         for emotion, flag in emotion_flags.items()
     }
 
     # Emotion count columns
     emotion_count_columns = {
-        f'NRCCount{emotion.capitalize()}Words': count
+        f"NRCCount{emotion.capitalize()}Words": count
         for emotion, count in emotion_counts.items()
     }
 
     # High/Low VAD flags
     vad_threshold_columns = {
-        f'NRCHasHigh{dimension.capitalize()}Word': high_vad_flags[dimension]
+        f"NRCHasHigh{dimension.capitalize()}Word": high_vad_flags[dimension]
         for dimension in high_vad_flags
     }
-    vad_threshold_columns.update({
-        f'NRCHasLow{dimension.capitalize()}Word': low_vad_flags[dimension]
-        for dimension in low_vad_flags
-    })
+    vad_threshold_columns.update(
+        {
+            f"NRCHasLow{dimension.capitalize()}Word": low_vad_flags[dimension]
+            for dimension in low_vad_flags
+        }
+    )
 
     # High/Low VAD counts
     vad_count_columns = {
-        f'NRCCountHigh{dimension.capitalize()}Words': high_vad_counts[dimension]
+        f"NRCCountHigh{dimension.capitalize()}Words": high_vad_counts[dimension]
         for dimension in high_vad_counts
     }
-    vad_count_columns.update({
-        f'NRCCountLow{dimension.capitalize()}Words': low_vad_counts[dimension]
-        for dimension in low_vad_counts
-    })
+    vad_count_columns.update(
+        {
+            f"NRCCountLow{dimension.capitalize()}Words": low_vad_counts[dimension]
+            for dimension in low_vad_counts
+        }
+    )
 
     # Word count
-    word_count_column = {'WordCount': len(words)}
+    word_count_column = {"WordCount": len(words)}
 
     # Anxiety/Calmness averages
     avg_anxiety = sum_anxiety / count_anxiety if count_anxiety > 0 else 0
     avg_calmness = sum_calmness / count_calmness if count_calmness > 0 else 0
 
     worry_columns = {
-        'NRCHasAnxietyWord': has_anxiety_word,
-        'NRCHasCalmnessWord': has_calmness_word,
-        'NRCAvgAnxiety': avg_anxiety,
-        'NRCAvgCalmness': avg_calmness,
-        'NRCHasHighAnxietyWord': has_high_anxiety_word,
-        'NRCCountHighAnxietyWords': count_high_anxiety_words,
-        'NRCHasHighCalmnessWord': has_high_calmness_word,
-        'NRCCountHighCalmnessWords': count_high_calmness_words
+        "NRCHasAnxietyWord": has_anxiety_word,
+        "NRCHasCalmnessWord": has_calmness_word,
+        "NRCAvgAnxiety": avg_anxiety,
+        "NRCAvgCalmness": avg_calmness,
+        "NRCHasHighAnxietyWord": has_high_anxiety_word,
+        "NRCCountHighAnxietyWords": count_high_anxiety_words,
+        "NRCHasHighCalmnessWord": has_high_calmness_word,
+        "NRCCountHighCalmnessWords": count_high_calmness_words,
     }
 
     # MoralTrust columns
     avg_moraltrust = sum_moraltrust / count_moraltrust if count_moraltrust > 0 else 0
     moraltrust_columns = {
-        'NRCHasHighMoralTrustWord': has_high_moraltrust_word,
-        'NRCCountHighMoralTrustWord': count_high_moraltrust_words,
-        'NRCHasLowMoralTrustWord': has_low_moraltrust_word,
-        'NRCCountLowMoralTrustWord': count_low_moraltrust_words,
-        'NRCAvgMoralTrustWord': avg_moraltrust
+        "NRCHasHighMoralTrustWord": has_high_moraltrust_word,
+        "NRCCountHighMoralTrustWord": count_high_moraltrust_words,
+        "NRCHasLowMoralTrustWord": has_low_moraltrust_word,
+        "NRCCountLowMoralTrustWord": count_low_moraltrust_words,
+        "NRCAvgMoralTrustWord": avg_moraltrust,
     }
 
     # SocialWarmth columns
-    avg_socialwarmth = sum_socialwarmth / count_socialwarmth if count_socialwarmth > 0 else 0
+    avg_socialwarmth = (
+        sum_socialwarmth / count_socialwarmth if count_socialwarmth > 0 else 0
+    )
     socialwarmth_columns = {
-        'NRCHasHighSocialWarmthWord': has_high_socialwarmth_word,
-        'NRCCountHighSocialWarmthWord': count_high_socialwarmth_words,
-        'NRCHasLowSocialWarmthWord': has_low_socialwarmth_word,
-        'NRCCountLowSocialWarmthWord': count_low_socialwarmth_words,
-        'NRCAvgSocialWarmthWord': avg_socialwarmth
+        "NRCHasHighSocialWarmthWord": has_high_socialwarmth_word,
+        "NRCCountHighSocialWarmthWord": count_high_socialwarmth_words,
+        "NRCHasLowSocialWarmthWord": has_low_socialwarmth_word,
+        "NRCCountLowSocialWarmthWord": count_low_socialwarmth_words,
+        "NRCAvgSocialWarmthWord": avg_socialwarmth,
     }
 
     # Warmth columns
     avg_warmth = sum_warmth / count_warmth if count_warmth > 0 else 0
     warmth_columns = {
-        'NRCHasHighWarmthWord': has_high_warmth_word,
-        'NRCCountHighWarmthWord': count_high_warmth_words,
-        'NRCHasLowWarmthWord': has_low_warmth_word,
-        'NRCCountLowWarmthWord': count_low_warmth_words,
-        'NRCAvgWarmthWord': avg_warmth
+        "NRCHasHighWarmthWord": has_high_warmth_word,
+        "NRCCountHighWarmthWord": count_high_warmth_words,
+        "NRCHasLowWarmthWord": has_low_warmth_word,
+        "NRCCountLowWarmthWord": count_low_warmth_words,
+        "NRCAvgWarmthWord": avg_warmth,
     }
 
     return {
@@ -432,6 +449,147 @@ def compute_vad_and_emotions(
     }
 
 
+def load_body_parts(filepath: str) -> List[str]:
+    """Load body parts from file with fallback to basic list."""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            return [line.strip().lower() for line in f if line.strip()]
+    except FileNotFoundError:
+        return [
+            "head",
+            "face",
+            "eye",
+            "nose",
+            "mouth",
+            "ear",
+            "neck",
+            "shoulder",
+            "arm",
+            "hand",
+            "finger",
+            "chest",
+            "back",
+            "stomach",
+            "leg",
+            "foot",
+            "toe",
+            "heart",
+            "brain",
+            "body",
+        ]
+
+
+def compute_prefixed_body_part_mentions(
+    text: str, body_parts: List[str]
+) -> Dict[str, Any]:
+    """Compute MyBPM, YourBPM, etc. from text using body parts list."""
+    if not isinstance(text, str):
+        return {
+            "My BPM": "",
+            "Your BPM": "",
+            "Her BPM": "",
+            "His BPM": "",
+            "Their BPM": "",
+            "HasBPM": 0,
+        }
+
+    text_lower = text.lower()
+
+    # Define prefixes and their labels for body parts
+    prefixes_and_labels = [
+        ("my ", "My BPM"),
+        ("your ", "Your BPM"),
+        ("her ", "Her BPM"),
+        ("his ", "His BPM"),
+        ("their ", "Their BPM"),
+    ]
+
+    results = {}
+
+    # Process prefixed body part mentions
+    for prefix, label in prefixes_and_labels:
+        matches = []
+        for body_part in body_parts:
+            prefixed_part = f"{prefix}{body_part}"
+            if prefixed_part in text_lower:
+                matches.append(prefixed_part)
+        results[label] = ", ".join(matches)
+
+    # Process non-prefixed body parts for HasBPM
+    has_bpm = 0
+    for body_part in body_parts:
+        if body_part in text_lower:
+            has_bpm = 1
+            break
+    results["HasBPM"] = has_bpm
+
+    return results
+
+
+def compute_individual_pronouns(text: str) -> Dict[str, int]:
+    """Compute individual pronoun presence with PRN prefix."""
+    if not isinstance(text, str):
+        return {
+            col: 0
+            for col in [
+                "PRNHasI",
+                "PRNHasMe",
+                "PRNHasMy",
+                "PRNHasMine",
+                "PRNHasWe",
+                "PRNHasOur",
+                "PRNHasOurs",
+                "PRNHasYou",
+                "PRNHasYour",
+                "PRNHasYours",
+                "PRNHasShe",
+                "PRNHasHer",
+                "PRNHasHers",
+                "PRNHasHe",
+                "PRNHasHim",
+                "PRNHasHis",
+                "PRNHasThey",
+                "PRNHasThem",
+                "PRNHasTheir",
+                "PRNHasTheirs",
+            ]
+        }
+
+    words = set(text.lower().split())
+
+    # Define pronouns sets with PRNHasXYZ column names
+    pronoun_sets = {
+        "PRNHasI": ["i"],
+        "PRNHasMe": ["me"],
+        "PRNHasMy": ["my"],
+        "PRNHasMine": ["mine"],
+        "PRNHasWe": ["we"],
+        "PRNHasOur": ["our"],
+        "PRNHasOurs": ["ours"],
+        "PRNHasYou": ["you"],
+        "PRNHasYour": ["your"],
+        "PRNHasYours": ["yours"],
+        "PRNHasShe": ["she"],
+        "PRNHasHer": ["her"],
+        "PRNHasHers": ["hers"],
+        "PRNHasHe": ["he"],
+        "PRNHasHim": ["him"],
+        "PRNHasHis": ["his"],
+        "PRNHasThey": ["they"],
+        "PRNHasThem": ["them"],
+        "PRNHasTheir": ["their"],
+        "PRNHasTheirs": ["theirs"],
+    }
+
+    results = {}
+    for col_name, pronoun_list in pronoun_sets.items():
+        results[col_name] = (
+            1 if any(pronoun in words for pronoun in pronoun_list) else 0
+        )
+
+    return results
+
+
 def compute_all_features(
     text: str,
     vad_dict: Dict[str, Dict[str, float]] = vad_dict,
@@ -442,6 +600,7 @@ def compute_all_features(
     moraltrust_dict: Dict[str, int] = moraltrust_dict,
     socialwarmth_dict: Dict[str, int] = socialwarmth_dict,
     warmth_dict: Dict[str, int] = warmth_dict,
+    body_parts: List[str] = None,
 ) -> Dict[str, Any]:
     """
     Compute all features including:
@@ -451,9 +610,13 @@ def compute_all_features(
     - Social Warmth
     - Warmth
     - Tense-related features (prefixed with TIME)
-    - Personal pronouns and body part mentions
+    - Personal pronouns and body part mentions (prefixed with PRN and BPM)
     """
     words = text.lower().split() if isinstance(text, str) else []
+
+    # Load body parts if not provided
+    if body_parts is None:
+        body_parts = load_body_parts("data/bodywords-full.txt")
 
     # Reuse compute_vad_and_emotions with all lexicons
     features = compute_vad_and_emotions(
@@ -464,13 +627,13 @@ def compute_all_features(
         worry_dict,
         moraltrust_dict,
         socialwarmth_dict,
-        warmth_dict
+        warmth_dict,
     )
 
     # Tense-related features
     past_count = 0
     present_count = 0
-    future_modals = {'will', 'shall', 'should', 'going to'}
+    future_modals = {"will", "shall", "should", "going to"}
     future_modal_count = 0
 
     for w in words:
@@ -482,59 +645,43 @@ def compute_all_features(
         if tense_dict and w in tense_dict:
             for tag in tense_dict[w]:
                 # Check for past tense
-                if 'PST' in tag:
+                if "PST" in tag:
                     past_count += 1
                 # Check for present tense
-                elif 'PRS' in tag:
+                elif "PRS" in tag:
                     present_count += 1
 
     # Check for future time reference words
     future_time_words = {"tomorrow", "next day", "next year", "next month"}
     joined_text = " ".join(words)
-    has_future_time_reference = any(phrase in joined_text for phrase in future_time_words)
+    has_future_time_reference = any(
+        phrase in joined_text for phrase in future_time_words
+    )
 
-    # Personal pronouns
-    first_person_pronouns = {'i', 'me', 'my', 'mine', 'myself'}
-    second_person_pronouns = {'you', 'your', 'yours', 'yourself', 'yourselves'}
-    third_person_pronouns = {'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves'}
-    
-    first_person_count = sum(1 for w in words if w in first_person_pronouns)
-    second_person_count = sum(1 for w in words if w in second_person_pronouns)
-    third_person_count = sum(1 for w in words if w in third_person_pronouns)
+    # Compute prefixed body part mentions (MyBPM, YourBPM, etc.)
+    bpm_features = compute_prefixed_body_part_mentions(text, body_parts)
 
-    # Body part mentions (load from data file if available)
-    body_parts_count = 0
-    try:
-        with open('data/bodywords-full.txt', 'r', encoding='utf-8') as f:
-            body_words = {line.strip().lower() for line in f if line.strip()}
-        body_parts_count = sum(1 for w in words if w in body_words)
-    except FileNotFoundError:
-        # Fallback to basic body parts if file not available
-        basic_body_parts = {'head', 'face', 'eye', 'nose', 'mouth', 'ear', 'neck', 'shoulder', 'arm', 'hand', 'finger', 'chest', 'back', 'stomach', 'leg', 'foot', 'toe', 'heart', 'brain', 'body'}
-        body_parts_count = sum(1 for w in words if w in basic_body_parts)
+    # Compute individual pronoun features (PRNHasI, PRNHasMe, etc.)
+    pronoun_features = compute_individual_pronouns(text)
 
-    features.update({
-        # Tense features
-        'TIMEHasPastVerb': 1 if past_count > 0 else 0,
-        'TIMECountPastVerbs': past_count,
-        'TIMEHasPresentVerb': 1 if present_count > 0 else 0,
-        'TIMECountPresentVerbs': present_count,
-        'TIMEHasFutureModal': 1 if future_modal_count > 0 else 0,
-        'TIMECountFutureModals': future_modal_count,
-        'TIMEHasPresentNoFuture': 1 if (present_count > 0 and future_modal_count == 0) else 0,
-        'TIMEHasFutureReference': 1 if has_future_time_reference else 0,
-        
-        # Personal pronoun features
-        'PPHasFirstPersonPronoun': 1 if first_person_count > 0 else 0,
-        'PPCountFirstPersonPronouns': first_person_count,
-        'PPHasSecondPersonPronoun': 1 if second_person_count > 0 else 0,
-        'PPCountSecondPersonPronouns': second_person_count,
-        'PPHasThirdPersonPronoun': 1 if third_person_count > 0 else 0,
-        'PPCountThirdPersonPronouns': third_person_count,
-        
-        # Body part mentions
-        'BPMHasBodyPartMention': 1 if body_parts_count > 0 else 0,
-        'BPMCountBodyPartMentions': body_parts_count,
-    })
+    features.update(
+        {
+            # Prefixed body part mentions (MyBPM, YourBPM, etc.)
+            **bpm_features,
+            # Individual pronoun features (PRNHasI, PRNHasMe, etc.)
+            **pronoun_features,
+            # Tense features
+            "TIMEHasPastVerb": 1 if past_count > 0 else 0,
+            "TIMECountPastVerbs": past_count,
+            "TIMEHasPresentVerb": 1 if present_count > 0 else 0,
+            "TIMECountPresentVerbs": present_count,
+            "TIMEHasFutureModal": 1 if future_modal_count > 0 else 0,
+            "TIMECountFutureModals": future_modal_count,
+            "TIMEHasPresentNoFuture": (
+                1 if (present_count > 0 and future_modal_count == 0) else 0
+            ),
+            "TIMEHasFutureReference": 1 if has_future_time_reference else 0,
+        }
+    )
 
-    return features 
+    return features
