@@ -29,8 +29,8 @@ SPLIT=text
 INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted/RS_2015-01
 
 # Number of Dask workers (keep low for testing)
-N_WORKERS=8
-MEM_PER_WORKER=2GB
+N_WORKERS=64
+MEM_PER_WORKER=4GB
 
 set -euo pipefail
 mkdir -p logs

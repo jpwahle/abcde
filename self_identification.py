@@ -16,7 +16,8 @@ class SelfIdentificationDetector:
             # I am 24 years old / I am 24.
             "age": [
                 re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,3})\s+years?\s+old\b", re.I),
-                re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,3})(?:\b|[^\w])", re.I),
+                # I am 24 / I'm 24 (only followed by age-related words or sentence boundaries)
+                re.compile(r"\bI\s+(?:am|'m)\s+(\d{1,3})(?=\s+(?:years?(?:\s+old|-old)?|yo|yrs?)\b|\s*[.!?;,]|\s*$)", re.I),
                 # I was born in 1998 / I am born in 1998.
                 re.compile(r"\bI\s+(?:was|am|'m)\s+born\s+in\s+(\d{2,4})\b", re.I),
                 # I was born on 14 July 1992.

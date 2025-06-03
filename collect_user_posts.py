@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from typing import Dict, Any, List, Set
+from datetime import datetime, timezone
 
 import dask.bag as db
 from dask.diagnostics import ProgressBar
@@ -43,8 +44,6 @@ def load_user_ids(self_id_jsonl: str) -> Dict[str, int]:
     given monthly dump.
     """
 
-    from datetime import datetime
-
     id_to_birth: Dict[str, int] = {}
 
     with open(self_id_jsonl, "r", encoding="utf-8") as f:
@@ -72,7 +71,13 @@ def load_user_ids(self_id_jsonl: str) -> Dict[str, int]:
             if created_utc is None:
                 continue  # need post timestamp to estimate birth year
 
-            post_year = datetime.utcfromtimestamp(created_utc).year
+            # Convert created_utc to float if it's a string
+            try:
+                if isinstance(created_utc, str):
+                    created_utc = float(created_utc)
+                post_year = datetime.fromtimestamp(created_utc, timezone.utc).year
+            except (ValueError, TypeError, OSError):
+                continue  # invalid timestamp
 
             # Decide whether *num* is a literal age (e.g. "24") or a 4-digit
             # birth year (e.g. "1998").
@@ -94,8 +99,6 @@ def load_user_ids(self_id_jsonl: str) -> Dict[str, int]:
 
 
 def process_file(file_path: str, user_birthyears: Dict[str, int], split: str, min_words: int, max_words: int) -> List[Dict[str, Any]]:
-    from datetime import datetime
-
     results: List[Dict[str, Any]] = []
 
     with open(file_path, "r", encoding="utf-8") as f:
@@ -147,9 +150,16 @@ def process_file(file_path: str, user_birthyears: Dict[str, int], split: str, mi
             # Compute dynamic age if we have a birth year and timestamp ------
             created_utc = entry.get("created_utc")
             if created_utc and birth_year:
-                post_year = datetime.utcfromtimestamp(created_utc).year
-                age_val = max(0, post_year - birth_year)
-                post_data["author"]["age"] = age_val
+                try:
+                    # Convert created_utc to float if it's a string
+                    if isinstance(created_utc, str):
+                        created_utc = float(created_utc)
+                    post_year = datetime.fromtimestamp(created_utc, timezone.utc).year
+                    age_val = max(0, post_year - birth_year)
+                    post_data["author"]["age"] = age_val
+                except (ValueError, TypeError, OSError):
+                    # Invalid timestamp, skip age computation
+                    pass
             # Compute linguistic features if possible.
             if compute_all_features:
                 feats = compute_all_features(
