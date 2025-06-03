@@ -118,6 +118,7 @@ def run_pipeline(
     n_workers: int = 16,
     memory_per_worker: str = "4GB",
     use_slurm: bool = False,
+    output_tsv: bool = False,
 ):
     """Main entry point: Detect self-identified users and write them to CSV."""
     os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
@@ -170,20 +171,24 @@ def run_pipeline(
     logger.info(f"Detected {len(results)} self-identification posts. Writing to {output_csv}")
     
     if results:
-        # Flatten results for CSV
+        # Flatten results for CSV/TSV
         csv_rows = [flatten_result_to_csv_row(result) for result in results]
         
-        # Write to CSV
-        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
+        # Write to CSV or TSV
+        separator = '\t' if output_tsv else ','
+        file_extension = 'tsv' if output_tsv else 'csv'
+        output_file = output_csv.replace('.csv', f'.{file_extension}') if output_tsv else output_csv
+        
+        with open(output_file, "w", encoding="utf-8", newline="") as csvfile:
             fieldnames = [
                 "Author", "SelfIdentificationAgeMajorityVote", "SelfIdentificationRawAges", 
                 "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
                 "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath"
             ]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
             writer.writeheader()
             
-            for row in tqdm(csv_rows, desc="Writing CSV"):
+            for row in tqdm(csv_rows, desc=f"Writing {file_extension.upper()}"):
                 writer.writerow(row)
     else:
         logger.warning("No results found. Creating empty CSV file.")
@@ -211,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_workers", type=int, default=16)
     parser.add_argument("--memory_per_worker", type=str, default="4GB")
     parser.add_argument("--use_slurm", action="store_true")
+    parser.add_argument("--output_tsv", action="store_true", help="Output TSV instead of CSV")
 
     args = parser.parse_args()
     run_pipeline(
@@ -222,4 +228,5 @@ if __name__ == "__main__":
         n_workers=args.n_workers,
         memory_per_worker=args.memory_per_worker,
         use_slurm=args.use_slurm,
+        output_tsv=args.output_tsv,
     ) 

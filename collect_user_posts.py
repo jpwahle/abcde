@@ -248,6 +248,7 @@ def run_pipeline(
     n_workers: int = 16,
     memory_per_worker: str = "4GB",
     use_slurm: bool = False,
+    output_tsv: bool = False,
 ):
     user_birthyears = load_user_ids(self_id_csv)
     logger.info(f"Loaded {len(user_birthyears)} unique users with self-identification.")
@@ -332,12 +333,16 @@ def run_pipeline(
             "BPMHasBodyPartMention", "BPMCountBodyPartMentions",
         ]
         
-        # Write to CSV
-        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        # Write to CSV or TSV
+        separator = '\t' if output_tsv else ','
+        file_extension = 'tsv' if output_tsv else 'csv'
+        output_file = output_csv.replace('.csv', f'.{file_extension}') if output_tsv else output_csv
+        
+        with open(output_file, "w", encoding="utf-8", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
             writer.writeheader()
             
-            for row in tqdm(csv_rows, desc="Writing CSV"):
+            for row in tqdm(csv_rows, desc=f"Writing {file_extension.upper()}"):
                 writer.writerow(row)
     else:
         logger.warning("No results found. Creating empty CSV file.")
@@ -367,6 +372,7 @@ if __name__ == "__main__":
     parser.add_argument("--n_workers", type=int, default=16)
     parser.add_argument("--memory_per_worker", type=str, default="4GB")
     parser.add_argument("--use_slurm", action="store_true")
+    parser.add_argument("--output_tsv", action="store_true", help="Output TSV instead of CSV")
 
     a = parser.parse_args()
     run_pipeline(
@@ -379,4 +385,5 @@ if __name__ == "__main__":
         n_workers=a.n_workers,
         memory_per_worker=a.memory_per_worker,
         use_slurm=a.use_slurm,
+        output_tsv=a.output_tsv,
     ) 
