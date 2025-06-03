@@ -211,20 +211,18 @@ def extract_columns(entry: Dict[str, Any], local_media_path: Optional[str]) -> D
     """
 
     return {
-        # Original Pushshift field names -------------------------------
         "id": entry.get("id"),
-        "title": entry.get("title", "").strip(),
-        "selftext": entry.get("selftext", "").strip(),
-        "subreddit": entry.get("subreddit", ""),
-        "subreddit_id": entry.get("subreddit_id", ""),
-        "num_comments": entry.get("num_comments", 0),
-        "score": entry.get("score", 0),
-        "url": entry.get("url", ""),
+        "subreddit": entry.get("subreddit"),
+        "title": entry.get("title", ""),
+        "selftext": entry.get("selftext", ""),
         "created_utc": entry.get("created_utc"),
+        "score": entry.get("score"),
+        "num_comments": entry.get("num_comments"),
+        "upvote_ratio": entry.get("upvote_ratio"),
         "author": entry.get("author"),
-        "author_id": entry.get("author_id"),
-        # Project-specific augmentation --------------------------------
-        "local_media_path": local_media_path,
+        "permalink": entry.get("permalink"),
+        "url": entry.get("url"),
+        "media_path": local_media_path,
     }
 
 

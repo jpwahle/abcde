@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import csv
 from typing import Dict, Any, List, Optional, Tuple
 
 import dask.bag as db
@@ -10,8 +11,8 @@ from dask.distributed import Client
 from dask_jobqueue import SLURMCluster
 from tqdm import tqdm
 
-from self_identification import SelfIdentificationDetector, detect_self_identification_in_entry
-from helpers import get_all_jsonl_files, filter_entry, extract_columns  # Re-use shared helpers
+from self_identification import SelfIdentificationDetector, detect_self_identification_with_resolved_age
+from helpers import get_all_jsonl_files, filter_entry, extract_columns
 
 logger = logging.getLogger("self_identify")
 logging.basicConfig(
@@ -19,6 +20,43 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
+
+
+def flatten_result_to_csv_row(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten nested result structure for CSV output with CapitalCase headers."""
+    row = {}
+    
+    # Author information
+    row["Author"] = result.get("author", "")
+    
+    # Self-identification with resolved age
+    self_id = result.get("self_identification", {})
+    
+    # Use resolved age if available, otherwise fallback to first raw age
+    if "resolved_age" in self_id:
+        resolved = self_id["resolved_age"]
+        row["SelfIdentificationAgeMajorityVote"] = resolved.get("age", "")
+        row["SelfIdentificationRawAges"] = "|".join(map(str, resolved.get("raw_matches", [])))
+    else:
+        # Fallback to first age from raw matches
+        age_matches = self_id.get("age", [])
+        row["SelfIdentificationAgeMajorityVote"] = age_matches[0] if age_matches else ""
+        row["SelfIdentificationRawAges"] = "|".join(map(str, age_matches))
+    
+    # Post information with Post prefix
+    post = result.get("post", {})
+    row["PostID"] = post.get("id", "")
+    row["PostSubreddit"] = post.get("subreddit", "")
+    row["PostTitle"] = post.get("title", "")
+    row["PostSelftext"] = post.get("selftext", "")
+    row["PostCreatedUtc"] = post.get("created_utc", "")
+    row["PostScore"] = post.get("score", "")
+    row["PostNumComments"] = post.get("num_comments", "")
+    row["PostPermalink"] = post.get("permalink", "")
+    row["PostUrl"] = post.get("url", "")
+    row["PostMediaPath"] = post.get("media_path", "")
+    
+    return row
 
 
 def process_file(
@@ -45,7 +83,8 @@ def process_file(
             if not filter_entry(entry, split=split, min_words=min_words, max_words=max_words):
                 continue
 
-            matches = detect_self_identification_in_entry(entry, detector)
+            # Use resolved age detection
+            matches = detect_self_identification_with_resolved_age(entry, detector)
             if not matches:
                 continue  # no self-identification found
 
@@ -54,18 +93,14 @@ def process_file(
             if (author_name is None) or (author_name == "[deleted]") or (author_name == ""):
                 continue
 
-            # Build structured output – ensure we always have a stable identifier.
-            # Pushshift may not provide *author_id* in older dumps but does expose
-            # a different user identifier called *author_fullname* with the same
-            # semantic role. We attempt to use one or the other and log whenever
-            # neither is available (indicating a potential data quality issue).
-            #
-            author_id = entry.get("author_id")
+            # Skip automated accounts - AutoModerator and Bot entries
+            if author_name in ("AutoModerator", "Bot"):
+                continue
+
             author = entry.get("author")
                         
             result = {
                 "author": author,
-                "author_id": author_id,
                 "self_identification": matches,
                 "post": extract_columns(entry, None),
             }
@@ -76,7 +111,7 @@ def process_file(
 
 def run_pipeline(
     input_dir: str,
-    output_jsonl: str,
+    output_csv: str,
     split: str = "text",
     min_words: int = 5,
     max_words: int = 1000,
@@ -84,8 +119,8 @@ def run_pipeline(
     memory_per_worker: str = "4GB",
     use_slurm: bool = False,
 ):
-    """Main entry point: Detect self-identified users and write them to *output_jsonl*."""
-    os.makedirs(os.path.dirname(output_jsonl) or ".", exist_ok=True)
+    """Main entry point: Detect self-identified users and write them to CSV."""
+    os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
 
     # Gather all JSONL files
     files = get_all_jsonl_files(input_dir)
@@ -132,10 +167,34 @@ def run_pipeline(
     with ProgressBar():
         results: List[Dict[str, Any]] = processed_bag.compute()
 
-    logger.info(f"Detected {len(results)} self-identification posts. Writing to {output_jsonl}")
-    with open(output_jsonl, "w", encoding="utf-8") as out_f:
-        for item in tqdm(results, desc="Writing output"):
-            out_f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    logger.info(f"Detected {len(results)} self-identification posts. Writing to {output_csv}")
+    
+    if results:
+        # Flatten results for CSV
+        csv_rows = [flatten_result_to_csv_row(result) for result in results]
+        
+        # Write to CSV
+        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
+            fieldnames = [
+                "Author", "SelfIdentificationAgeMajorityVote", "SelfIdentificationRawAges", 
+                "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
+                "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath"
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for row in tqdm(csv_rows, desc="Writing CSV"):
+                writer.writerow(row)
+    else:
+        logger.warning("No results found. Creating empty CSV file.")
+        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
+            fieldnames = [
+                "Author", "SelfIdentificationAgeMajorityVote", "SelfIdentificationRawAges", 
+                "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
+                "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath"
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
 
     client.close()
     if use_slurm:
@@ -145,7 +204,7 @@ def run_pipeline(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Detect self-identified users in Reddit JSONL dump")
     parser.add_argument("--input_dir", required=True, help="Directory containing RS_*.jsonl files")
-    parser.add_argument("--output_jsonl", required=True, help="Output JSONL file for self-identification matches")
+    parser.add_argument("--output_csv", required=True, help="Output CSV file for self-identification matches")
     parser.add_argument("--split", choices=["text", "multimodal"], default="text")
     parser.add_argument("--min_words", type=int, default=5)
     parser.add_argument("--max_words", type=int, default=1000)
@@ -156,7 +215,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     run_pipeline(
         input_dir=args.input_dir,
-        output_jsonl=args.output_jsonl,
+        output_csv=args.output_csv,
         split=args.split,
         min_words=args.min_words,
         max_words=args.max_words,

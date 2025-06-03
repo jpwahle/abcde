@@ -11,9 +11,9 @@ The code is intentionally *data-source agnostic* – only the file crawler (whic
 ```mermaid
 graph TD
     A[Dump of RS_*.jsonl files (≈3 TB)] -->|Dask-parallel| B[identify_self_users.py]
-    B -->|self-identified authors| C[self_users.jsonl]
+    B -->|self-identified authors| C[self_users.csv]
     C --> D[collect_user_posts.py]
-    D -->|enriched posts| E[self_users_posts.jsonl]
+    D -->|enriched posts| E[self_users_posts.csv]
 ```
 
 ## 2. Downloading the raw Reddit dump
@@ -40,24 +40,22 @@ Tips:
 * Install `zstd` if `unzstd`/`zstd` is not available: `sudo apt install zstd` (Debian/Ubuntu).
 * You can move the extracted `.jsonl` files anywhere – just pass their directory via `--input_dir` in the next section.
 
-> Note: Older reddit dumps do not contain the `author_id` field.
-
 ## 3. Quickstart (local execution)
 
 > **Warning**  Scanning the full 3 TB Reddit dump is a multi-hour job. Start with a subset to validate the setup.
 
 ```bash
-# (1) Find self-identified users
+# (1) Find self-identified users (outputs CSV with flattened structure and resolved age)
 python identify_self_users.py \
   --input_dir /path/to/reddit/ \
-  --output_jsonl outputs/self_users.jsonl \
+  --output_csv outputs/self_users.csv \
   --n_workers 32
 
-# (2) Collect all posts written by these users
+# (2) Collect all posts written by these users (outputs CSV with linguistic features)
 python collect_user_posts.py \
   --input_dir /path/to/reddit/ \
-  --self_identified_jsonl outputs/self_users.jsonl \
-  --output_jsonl outputs/self_users_posts.jsonl \
+  --self_identified_csv outputs/self_users.csv \
+  --output_csv outputs/self_users_posts.csv \
   --n_workers 32
 ```
 
@@ -68,7 +66,7 @@ Pass `--use_slurm` to either script. Internally we use `dask-jobqueue` to spin u
 ```bash
 python identify_self_users.py \
   --input_dir /shared/reddit \
-  --output_jsonl outputs/self_users.jsonl \
+  --output_csv outputs/self_users.csv \
   --n_workers 128 \
   --memory_per_worker 8GB \
   --use_slurm
@@ -89,7 +87,7 @@ python identify_self_users.py \
 ## 6. Extending to other data sources
 
 1. **Crawler** – replace `get_all_jsonl_files` with a function that yields your documents.
-2. **Entry adapter** – ensure every record exposes `title`, `selftext`, `author`, `author_id`, and `id` – you can use a small wrapper if field names differ.
+2. **Entry adapter** – ensure every record exposes `title`, `selftext`, `author`, and `id` – you can use a small wrapper if field names differ.
 3. Everything else (regex detection, feature annotation) works unchanged.
 
 ## 7. Feature computation internals

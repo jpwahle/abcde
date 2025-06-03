@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import csv
 from typing import Dict, Any, List, Set
 from datetime import datetime, timezone
 
@@ -34,64 +35,119 @@ logging.basicConfig(
 )
 
 
-def load_user_ids(self_id_jsonl: str) -> Dict[str, int]:
-    """Return a mapping from user identifier → inferred *birth_year*.
+def flatten_post_to_csv_row(post_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten nested post structure for CSV output with CapitalCase headers."""
+    row = {}
+    
+    # Post basic information
+    row["PostID"] = post_data.get("id", "")
+    row["PostSubreddit"] = post_data.get("subreddit", "")
+    row["PostTitle"] = post_data.get("title", "")
+    row["PostSelftext"] = post_data.get("selftext", "")
+    row["PostCreatedUtc"] = post_data.get("created_utc", "")
+    row["PostScore"] = post_data.get("score", "")
+    row["PostNumComments"] = post_data.get("num_comments", "")
+    row["PostPermalink"] = post_data.get("permalink", "")
+    row["PostUrl"] = post_data.get("url", "")
+    row["PostMediaPath"] = post_data.get("media_path", "")
+    
+    # Author information (flattened from nested structure)
+    author = post_data.get("author", {})
+    if isinstance(author, dict):
+        row["AuthorName"] = author.get("name", "")
+        row["AuthorAge"] = author.get("age", "")
+    else:
+        # Fallback for flat author field
+        row["AuthorName"] = str(author) if author else ""
+        row["AuthorAge"] = ""
+    
+    # All linguistic features - keep their original CapitalCase names
+    feature_fields = [
+        "WordCount", 
+        # VAD fields
+        "NRCAvgValence", "NRCAvgArousal", "NRCAvgDominance",
+        "NRCHasHighValenceWord", "NRCHasLowValenceWord", "NRCHasHighArousalWord", "NRCHasLowArousalWord",
+        "NRCHasHighDominanceWord", "NRCHasLowDominanceWord",
+        "NRCCountHighValenceWords", "NRCCountLowValenceWords", "NRCCountHighArousalWords", "NRCCountLowArousalWords",
+        "NRCCountHighDominanceWords", "NRCCountLowDominanceWords",
+        # Emotion fields
+        "NRCHasAngerWord", "NRCHasAnticipationWord", "NRCHasDisgustWord", "NRCHasFearWord", "NRCHasJoyWord",
+        "NRCHasNegativeWord", "NRCHasPositiveWord", "NRCHasSadnessWord", "NRCHasSurpriseWord", "NRCHasTrustWord",
+        "NRCCountAngerWords", "NRCCountAnticipationWords", "NRCCountDisgustWords", "NRCCountFearWords", "NRCCountJoyWords",
+        "NRCCountNegativeWords", "NRCCountPositiveWords", "NRCCountSadnessWords", "NRCCountSurpriseWords", "NRCCountTrustWords",
+        # Anxiety/Calmness fields
+        "NRCHasAnxietyWord", "NRCHasCalmnessWord", "NRCAvgAnxiety", "NRCAvgCalmness",
+        "NRCHasHighAnxietyWord", "NRCCountHighAnxietyWords", "NRCHasHighCalmnessWord", "NRCCountHighCalmnessWords",
+        # Moral Trust fields
+        "NRCHasHighMoralTrustWord", "NRCCountHighMoralTrustWord", "NRCHasLowMoralTrustWord", "NRCCountLowMoralTrustWord", "NRCAvgMoralTrustWord",
+        # Social Warmth fields
+        "NRCHasHighSocialWarmthWord", "NRCCountHighSocialWarmthWord", "NRCHasLowSocialWarmthWord", "NRCCountLowSocialWarmthWord", "NRCAvgSocialWarmthWord",
+        # Warmth fields
+        "NRCHasHighWarmthWord", "NRCCountHighWarmthWord", "NRCHasLowWarmthWord", "NRCCountLowWarmthWord", "NRCAvgWarmthWord",
+        # Tense fields
+        "TIMEHasPastVerb", "TIMECountPastVerbs", "TIMEHasPresentVerb", "TIMECountPresentVerbs",
+        "TIMEHasFutureModal", "TIMECountFutureModals", "TIMEHasPresentNoFuture", "TIMEHasFutureReference",
+        # Personal pronoun fields
+        "PPHasFirstPersonPronoun", "PPCountFirstPersonPronouns", "PPHasSecondPersonPronoun", "PPCountSecondPersonPronouns",
+        "PPHasThirdPersonPronoun", "PPCountThirdPersonPronouns",
+        # Body part mention fields
+        "BPMHasBodyPartMention", "BPMCountBodyPartMentions",
+    ]
+    
+    # Add all feature fields with default empty values
+    for field in feature_fields:
+        row[field] = post_data.get(field, "")
+    
+    return row
 
-    We take the first age/birth-year statement found in the self-identification
-    JSONL and combine it with the timestamp of that post to approximate a
-    birth year. Keys include both author_id (if available) and the username so
-    that we can match posts regardless of which identifier is present in a
-    given monthly dump.
+
+def load_user_ids(self_id_csv: str) -> Dict[str, int]:
+    """Return a mapping from username → inferred *birth_year*.
+
+    We take the age from the self-identification CSV and combine it with the 
+    timestamp of that post to approximate a birth year. Keys are usernames.
     """
 
     id_to_birth: Dict[str, int] = {}
 
-    with open(self_id_jsonl, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
+    with open(self_id_csv, "r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for record in reader:
+            # Skip rows without age data
+            age_str = record.get("SelfIdentificationAgeMajorityVote", "").strip()
+            if not age_str:
                 continue
+                
             try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            self_id_info = record.get("self_identification", {})
-            age_hits = self_id_info.get("age", [])
-            if not age_hits:
-                continue  # cannot infer birth year
-
-            first_hit = age_hits[0]
-            try:
-                num = int(first_hit)
+                age_val = int(age_str)
             except ValueError:
                 continue  # non-numeric match – skip
 
-            post_meta = record.get("post", {})
-            created_utc = post_meta.get("created_utc")
-            if created_utc is None:
+            created_utc_str = record.get("PostCreatedUtc", "").strip()
+            if not created_utc_str:
                 continue  # need post timestamp to estimate birth year
 
             # Convert created_utc to float if it's a string
             try:
-                if isinstance(created_utc, str):
-                    created_utc = float(created_utc)
+                created_utc = float(created_utc_str)
                 post_year = datetime.fromtimestamp(created_utc, timezone.utc).year
             except (ValueError, TypeError, OSError):
                 continue  # invalid timestamp
 
-            # Decide whether *num* is a literal age (e.g. "24") or a 4-digit
+            # Decide whether *age_val* is a literal age (e.g. "24") or a 4-digit
             # birth year (e.g. "1998").
-            if 1800 <= num <= post_year:  # treat as YYYY birth year
-                birth_year = num
+            if 1800 <= age_val <= post_year:  # treat as YYYY birth year
+                birth_year = age_val
             else:
-                birth_year = post_year - num
+                birth_year = post_year - age_val
 
-            # Map both stable and username identifiers -------------------
-            author_id_val = record["author_id"]
-            author_name_val = record["author"]
+            # Map username identifier -------------------
+            author_name_val = record.get("Author", "").strip()
 
-            if author_id_val:
-                id_to_birth.setdefault(author_id_val, birth_year)
+            # Skip automated accounts - AutoModerator and Bot entries
+            if author_name_val in ("AutoModerator", "Bot"):
+                continue
+
             if author_name_val and author_name_val not in {"", "[deleted]"}:
                 id_to_birth.setdefault(author_name_val, birth_year)
 
@@ -112,26 +168,29 @@ def process_file(file_path: str, user_birthyears: Dict[str, int], split: str, mi
                 continue
 
             # Ensure we use the same identifier logic as in *identify_self_users.py*
-            # Use .get() to safely handle missing author_id field in older posts
-            author_id_raw = entry.get("author_id")
-            author_id_or_fullname = entry.get("author_id") or entry.get("author_fullname")
+            # Use .get() to safely handle missing fields in older posts
+            author_fullname = entry.get("author_fullname")
             author_name = entry.get("author")
 
+            # Skip automated accounts - AutoModerator and Bot entries
+            if author_name in ("AutoModerator", "Bot"):
+                continue
+
             # Retrieve inferred birth year if this post was written by a
-            # self-identified user (lookup by either stable id or username).
+            # self-identified user (lookup by author_fullname or username).
             birth_year = None
-            
-            # First try to match using author_id or author_fullname (preferred method)
-            if author_id_or_fullname and author_id_or_fullname in user_birthyears:
-                birth_year = user_birthyears[author_id_or_fullname]
-            # Fallback to author name if author_id is not available or not found
+
+            # First try to match using author_fullname (preferred method)
+            if author_fullname and author_fullname in user_birthyears:
+                birth_year = user_birthyears[author_fullname]
+            # Fallback to author name if author_fullname is not available or not found
             elif author_name and author_name in user_birthyears:
                 birth_year = user_birthyears[author_name]
                 # Log when we're using the fallback method
-                if not author_id_or_fullname:
+                if not author_fullname:
                     logger.debug(f"Using author name fallback for post {entry.get('id', 'unknown')} by {author_name}")
                 else:
-                    logger.debug(f"Author ID {author_id_or_fullname} not found, using author name {author_name} for post {entry.get('id', 'unknown')}")
+                    logger.debug(f"Author fullname {author_fullname} not found, using author name {author_name} for post {entry.get('id', 'unknown')}")
 
             if birth_year is None:
                 continue
@@ -143,7 +202,6 @@ def process_file(file_path: str, user_birthyears: Dict[str, int], split: str, mi
             # Replace flat author string with detailed object ------------------
             post_data["author"] = {
                 "name": author_name,
-                "id": author_id_raw,  # strictly the original *author_id* field
                 # Placeholders for future demographics ---------------------
                 "age": None,
             }
@@ -182,8 +240,8 @@ def process_file(file_path: str, user_birthyears: Dict[str, int], split: str, mi
 
 def run_pipeline(
     input_dir: str,
-    self_id_jsonl: str,
-    output_jsonl: str,
+    self_id_csv: str,
+    output_csv: str,
     split: str = "text",
     min_words: int = 5,
     max_words: int = 1000,
@@ -191,7 +249,7 @@ def run_pipeline(
     memory_per_worker: str = "4GB",
     use_slurm: bool = False,
 ):
-    user_birthyears = load_user_ids(self_id_jsonl)
+    user_birthyears = load_user_ids(self_id_csv)
     logger.info(f"Loaded {len(user_birthyears)} unique users with self-identification.")
 
     files = get_all_jsonl_files(input_dir)
@@ -228,11 +286,70 @@ def run_pipeline(
     with ProgressBar():
         results = processed_bag.compute()
 
-    logger.info(f"Writing {len(results)} user posts to {output_jsonl}")
-    os.makedirs(os.path.dirname(output_jsonl) or ".", exist_ok=True)
-    with open(output_jsonl, "w", encoding="utf-8") as out_f:
-        for r in tqdm(results, desc="Writing"):
-            out_f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    logger.info(f"Writing {len(results)} user posts to {output_csv}")
+    os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
+    
+    if results:
+        # Flatten results for CSV
+        csv_rows = [flatten_post_to_csv_row(result) for result in results]
+        
+        # Define all possible field names in logical order
+        fieldnames = [
+            # Post information
+            "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
+            "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
+            # Author information  
+            "AuthorName", "AuthorAge",
+            # Basic features
+            "WordCount",
+            # VAD features
+            "NRCAvgValence", "NRCAvgArousal", "NRCAvgDominance",
+            "NRCHasHighValenceWord", "NRCHasLowValenceWord", "NRCHasHighArousalWord", "NRCHasLowArousalWord",
+            "NRCHasHighDominanceWord", "NRCHasLowDominanceWord",
+            "NRCCountHighValenceWords", "NRCCountLowValenceWords", "NRCCountHighArousalWords", "NRCCountLowArousalWords",
+            "NRCCountHighDominanceWords", "NRCCountLowDominanceWords",
+            # Emotion features
+            "NRCHasAngerWord", "NRCHasAnticipationWord", "NRCHasDisgustWord", "NRCHasFearWord", "NRCHasJoyWord",
+            "NRCHasNegativeWord", "NRCHasPositiveWord", "NRCHasSadnessWord", "NRCHasSurpriseWord", "NRCHasTrustWord",
+            "NRCCountAngerWords", "NRCCountAnticipationWords", "NRCCountDisgustWords", "NRCCountFearWords", "NRCCountJoyWords",
+            "NRCCountNegativeWords", "NRCCountPositiveWords", "NRCCountSadnessWords", "NRCCountSurpriseWords", "NRCCountTrustWords",
+            # Anxiety/Calmness features
+            "NRCHasAnxietyWord", "NRCHasCalmnessWord", "NRCAvgAnxiety", "NRCAvgCalmness",
+            "NRCHasHighAnxietyWord", "NRCCountHighAnxietyWords", "NRCHasHighCalmnessWord", "NRCCountHighCalmnessWords",
+            # Moral Trust features
+            "NRCHasHighMoralTrustWord", "NRCCountHighMoralTrustWord", "NRCHasLowMoralTrustWord", "NRCCountLowMoralTrustWord", "NRCAvgMoralTrustWord",
+            # Social Warmth features
+            "NRCHasHighSocialWarmthWord", "NRCCountHighSocialWarmthWord", "NRCHasLowSocialWarmthWord", "NRCCountLowSocialWarmthWord", "NRCAvgSocialWarmthWord",
+            # Warmth features
+            "NRCHasHighWarmthWord", "NRCCountHighWarmthWord", "NRCHasLowWarmthWord", "NRCCountLowWarmthWord", "NRCAvgWarmthWord",
+            # Tense features
+            "TIMEHasPastVerb", "TIMECountPastVerbs", "TIMEHasPresentVerb", "TIMECountPresentVerbs",
+            "TIMEHasFutureModal", "TIMECountFutureModals", "TIMEHasPresentNoFuture", "TIMEHasFutureReference",
+            # Personal pronoun features
+            "PPHasFirstPersonPronoun", "PPCountFirstPersonPronouns", "PPHasSecondPersonPronoun", "PPCountSecondPersonPronouns",
+            "PPHasThirdPersonPronoun", "PPCountThirdPersonPronouns",
+            # Body part mention features
+            "BPMHasBodyPartMention", "BPMCountBodyPartMentions",
+        ]
+        
+        # Write to CSV
+        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for row in tqdm(csv_rows, desc="Writing CSV"):
+                writer.writerow(row)
+    else:
+        logger.warning("No results found. Creating empty CSV file.")
+        # Create empty CSV with headers
+        fieldnames = [
+            "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
+            "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
+            "AuthorName", "AuthorAge", "WordCount"
+        ]
+        with open(output_csv, "w", encoding="utf-8", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
 
     client.close()
     if use_slurm:
@@ -242,8 +359,8 @@ def run_pipeline(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Collect all posts written by self-identified users")
     parser.add_argument("--input_dir", required=True)
-    parser.add_argument("--self_identified_jsonl", required=True, help="Output of identify_self_users.py")
-    parser.add_argument("--output_jsonl", required=True)
+    parser.add_argument("--self_identified_csv", required=True, help="Output of identify_self_users.py")
+    parser.add_argument("--output_csv", required=True, help="Output CSV file for user posts")
     parser.add_argument("--split", choices=["text", "multimodal"], default="text")
     parser.add_argument("--min_words", type=int, default=5)
     parser.add_argument("--max_words", type=int, default=1000)
@@ -254,8 +371,8 @@ if __name__ == "__main__":
     a = parser.parse_args()
     run_pipeline(
         input_dir=a.input_dir,
-        self_id_jsonl=a.self_identified_jsonl,
-        output_jsonl=a.output_jsonl,
+        self_id_csv=a.self_identified_csv,
+        output_csv=a.output_csv,
         split=a.split,
         min_words=a.min_words,
         max_words=a.max_words,

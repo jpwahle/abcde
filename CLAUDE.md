@@ -28,17 +28,17 @@ Uses `uv` for dependency management. Core dependencies:
 
 ### Local execution:
 ```bash
-# Stage 1: Find self-identified users
-uv run python identify_self_users.py --input_dir /path/to/reddit/ --output_jsonl outputs/self_users.jsonl --n_workers 32
+# Stage 1: Find self-identified users (outputs CSV with majority-voted age and flattened structure)
+uv run python identify_self_users.py --input_dir /path/to/reddit/ --output_csv outputs/self_users.csv --n_workers 32
 
-# Stage 2: Collect posts and compute features
-uv run python collect_user_posts.py --input_dir /path/to/reddit/ --self_identified_jsonl outputs/self_users.jsonl --output_jsonl outputs/self_users_posts.jsonl --n_workers 32
+# Stage 2: Collect posts and compute features (outputs CSV with linguistic features)
+uv run python collect_user_posts.py --input_dir /path/to/reddit/ --self_identified_csv outputs/self_users.csv --output_csv outputs/self_users_posts.csv --n_workers 32
 ```
 
 ### SLURM cluster execution:
 Add `--use_slurm` flag and adjust workers/memory:
 ```bash
-uv run python identify_self_users.py --input_dir /shared/reddit --output_jsonl outputs/self_users.jsonl --n_workers 128 --memory_per_worker 8GB --use_slurm
+uv run python identify_self_users.py --input_dir /shared/reddit --output_csv outputs/self_users.csv --n_workers 128 --memory_per_worker 8GB --use_slurm
 ```
 
 ### Full pipeline (SLURM):

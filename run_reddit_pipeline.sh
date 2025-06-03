@@ -37,14 +37,14 @@ mkdir -p $OUTPUT_DIR logs
 
 set -euo pipefail
 
-SELF_USERS_JSONL=$OUTPUT_DIR/self_users_${SPLIT}.jsonl
-ALL_POSTS_JSONL=$OUTPUT_DIR/self_users_posts_${SPLIT}.jsonl
+SELF_USERS_CSV=$OUTPUT_DIR/self_users_${SPLIT}.csv
+ALL_POSTS_CSV=$OUTPUT_DIR/self_users_posts_${SPLIT}.csv
 
 # --------------------------------------------------------------------
 # Stage 1 – detect self-identified users
 uv run python identify_self_users.py \
   --input_dir "$INPUT_DIR" \
-  --output_jsonl "$SELF_USERS_JSONL" \
+  --output_csv "$SELF_USERS_CSV" \
   --split "$SPLIT" \
   --n_workers $N_WORKERS \
   --memory_per_worker $MEM_PER_WORKER \
@@ -54,8 +54,8 @@ uv run python identify_self_users.py \
 # Stage 2 – collect all posts of those users & annotate features
 uv run python collect_user_posts.py \
   --input_dir "$INPUT_DIR" \
-  --self_identified_jsonl "$SELF_USERS_JSONL" \
-  --output_jsonl "$ALL_POSTS_JSONL" \
+  --self_identified_csv "$SELF_USERS_CSV" \
+  --output_csv "$ALL_POSTS_CSV" \
   --split "$SPLIT" \
   --n_workers $N_WORKERS \
   --memory_per_worker $MEM_PER_WORKER \
