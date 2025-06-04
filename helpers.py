@@ -446,45 +446,51 @@ def flatten_result_to_csv_row(
     else:
         row["Author"] = result.get("author", "") or ""
 
-    # Compute majority birthyear and raw birthyear extractions
-    self_id = result.get("self_identification", {})
-    if data_source == "tusc":
-        ref_year = int(result.get("Year", ""))
-    else:
-        ts = result.get("post", {}).get("created_utc") or result.get("created_utc")
-        ref_year = datetime.utcfromtimestamp(int(ts)).year
-    raw_matches: List[str] = []
-    majority_birthyear: Optional[int] = None
-    if "resolved_age" in self_id:
-        raw_matches = list(self_id["resolved_age"].get("raw_matches", []))
-        age_val = self_id["resolved_age"].get("age")
-        if isinstance(age_val, int):
-            majority_birthyear = ref_year - age_val
-    else:
-        raw_matches = list(self_id.get("age", []))
-        if raw_matches:
+    # Compute majority birthyear and raw birthyear extractions when available
+    if "self_identification" in result:
+        self_id = result["self_identification"]
+        if data_source == "tusc":
             try:
-                val = int(raw_matches[0])
+                ref_year = int(result.get("Year", ""))
+            except (TypeError, ValueError):
+                ref_year = datetime.now().year
+        else:
+            try:
+                ts = result.get("post", {}).get("created_utc")
+                ref_year = datetime.utcfromtimestamp(int(ts)).year
+            except Exception:
+                ref_year = datetime.now().year
+        raw_matches: List[str] = []
+        majority_birthyear: Optional[int] = None
+        if "resolved_age" in self_id:
+            raw_matches = list(self_id["resolved_age"].get("raw_matches", []))
+            age_val = self_id["resolved_age"].get("age")
+            if isinstance(age_val, int):
+                majority_birthyear = ref_year - age_val
+        else:
+            raw_matches = list(self_id.get("age", []))
+            if raw_matches:
+                try:
+                    val = int(raw_matches[0])
+                except ValueError:
+                    val = None
+                if isinstance(val, int):
+                    if 1900 <= val <= ref_year:
+                        majority_birthyear = val
+                    elif 1 <= val <= 120:
+                        majority_birthyear = ref_year - val
+        raw_birthyears: List[int] = []
+        for m in raw_matches:
+            try:
+                v = int(m)
             except ValueError:
-                val = None
-            if isinstance(val, int):
-                if 1900 <= val <= ref_year:
-                    majority_birthyear = val
-                elif 1 <= val <= 120:
-                    majority_birthyear = ref_year - val
-    # Convert raw matches to birthyears
-    raw_birthyears: List[int] = []
-    for m in raw_matches:
-        try:
-            v = int(m)
-        except ValueError:
-            continue
-        if 1900 <= v <= ref_year:
-            raw_birthyears.append(v)
-        elif 1 <= v <= 120:
-            raw_birthyears.append(ref_year - v)
-    row["DMGMajorityBirthyear"] = majority_birthyear or ""
-    row["DMGRawBirthyearExtractions"] = "|".join(str(x) for x in raw_birthyears)
+                continue
+            if 1900 <= v <= ref_year:
+                raw_birthyears.append(v)
+            elif 1 <= v <= 120:
+                raw_birthyears.append(ref_year - v)
+        row["DMGMajorityBirthyear"] = majority_birthyear or ""
+        row["DMGRawBirthyearExtractions"] = "|".join(str(x) for x in raw_birthyears)
 
     # Include age at posting if available (stage2)
     if "DMGAgeAtPost" in result:
@@ -536,11 +542,10 @@ def get_csv_fieldnames(
     """
     Get static CSV/TSV header fields based on data source and stage ('users' or 'posts').
     """
-    # User-level headers: DMG birthyear info
+    # User-level headers: DMG birthyear info; for posts only include age at post
     if stage == "users":
         user_cols = ["Author", "DMGMajorityBirthyear", "DMGRawBirthyearExtractions"]
     else:
-        # Post-level headers: DMG age at post
         user_cols = ["Author", "DMGAgeAtPost"]
     if data_source == "tusc":
         base = user_cols + ["PostID", "PostText", "PostCreatedAt", "PostYear", "PostMonth"]
