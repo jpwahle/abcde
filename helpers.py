@@ -379,6 +379,8 @@ def load_body_parts(filepath: str) -> List[str]:
     with open(filepath, "r", encoding="utf-8") as f:
         return [l.strip().lower() for l in f if l.strip()]
 
+BODY_PARTS = load_body_parts(_DATA_DIR / "bodywords-full.txt")
+
 
 def compute_prefixed_body_part_mentions(text: str, body_parts: List[str]) -> Dict[str, Any]:
     lower = text.lower()
@@ -415,10 +417,13 @@ def detect_self_identification_in_tusc_entry(
 def apply_linguistic_features(text: str, include_features: bool = True) -> Dict[str, Any]:
     if not include_features or not text:
         return {}
-    return compute_vad_and_emotions(
+    features = compute_vad_and_emotions(
         text, vad_dict, emotion_dict, emotions, worry_dict,
         moraltrust_dict, socialwarmth_dict, warmth_dict
     )
+    features.update(compute_individual_pronouns(text))
+    features.update(compute_prefixed_body_part_mentions(text, BODY_PARTS))
+    return features
 
 # -------------------- #
 # Flattening and I/O Utilities
