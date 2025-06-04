@@ -158,8 +158,8 @@ def main():
         result_df["AuthorBirthYear"] = ""
         result_df["AuthorRawAges"] = ""
         
-        # Fill in the details for each row
-        for idx, row in result_df.iterrows():
+        # Fill in the details using vectorized operations
+        def get_user_details(row):
             user_id = str(row[user_id_col]) if not pd.isna(row[user_id_col]) else ""
             user_name = str(row[user_name_col]) if user_name_col in result_df.columns and not pd.isna(row[user_name_col]) else ""
             
@@ -171,17 +171,29 @@ def main():
                 details = user_details[user_name]
             
             if details:
-                result_df.at[idx, "AuthorBirthYear"] = details.get('birth_year', "")
-                result_df.at[idx, "AuthorRawAges"] = details.get('raw_ages', "")
+                return pd.Series({
+                    'AuthorBirthYear': details.get('birth_year', ""),
+                    'AuthorRawAges': details.get('raw_ages', "")
+                })
+            else:
+                return pd.Series({
+                    'AuthorBirthYear': "",
+                    'AuthorRawAges': ""
+                })
         
-            # Write output
-            separator = '\t' if args.output_tsv else ','
-            file_extension = 'tsv' if args.output_tsv else 'csv'
-            output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
-            
-            result_df.to_csv(output_file, index=False, sep=separator)
-            
-            logger.info(f"Output written to {output_file}")
+        # Apply the function vectorized and assign results
+        details_df = result_df.apply(get_user_details, axis=1)
+        result_df["AuthorBirthYear"] = details_df["AuthorBirthYear"]
+        result_df["AuthorRawAges"] = details_df["AuthorRawAges"]
+        
+        # Write output
+        separator = '\t' if args.output_tsv else ','
+        file_extension = 'tsv' if args.output_tsv else 'csv'
+        output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
+        
+        result_df.to_csv(output_file, index=False, sep=separator)
+        
+        logger.info(f"Output written to {output_file}")
             
     finally:
         if client is not None:
