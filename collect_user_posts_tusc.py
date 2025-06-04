@@ -147,41 +147,42 @@ def main():
             client=client
         )
     
-    logger.info(f"Processed {len(result_df)} rows from target users")
+        logger.info(f"Processed {len(result_df)} rows from target users")
+
     
-    # Add birthyear and raw ages columns to the dataframe
-    user_id_col = "UserID" if args.split == "country" else "userID"
-    user_name_col = "UserName" if args.split == "country" else "userName"
-    
-    # Create new columns
-    result_df["AuthorBirthYear"] = ""
-    result_df["AuthorRawAges"] = ""
-    
-    # Fill in the details for each row
-    for idx, row in result_df.iterrows():
-        user_id = str(row[user_id_col]) if not pd.isna(row[user_id_col]) else ""
-        user_name = str(row[user_name_col]) if user_name_col in result_df.columns and not pd.isna(row[user_name_col]) else ""
+        # Add birthyear and raw ages columns to the dataframe
+        user_id_col = "UserID" if args.split == "country" else "userID"
+        user_name_col = "UserName" if args.split == "country" else "userName"
         
-        # Try to find details by user ID first, then by user name
-        details = None
-        if user_id and user_id in user_details:
-            details = user_details[user_id]
-        elif user_name and user_name in user_details:
-            details = user_details[user_name]
+        # Create new columns
+        result_df["AuthorBirthYear"] = ""
+        result_df["AuthorRawAges"] = ""
         
-        if details:
-            result_df.at[idx, "AuthorBirthYear"] = details.get('birth_year', "")
-            result_df.at[idx, "AuthorRawAges"] = details.get('raw_ages', "")
-    
-        # Write output
-        separator = '\t' if args.output_tsv else ','
-        file_extension = 'tsv' if args.output_tsv else 'csv'
-        output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
+        # Fill in the details for each row
+        for idx, row in result_df.iterrows():
+            user_id = str(row[user_id_col]) if not pd.isna(row[user_id_col]) else ""
+            user_name = str(row[user_name_col]) if user_name_col in result_df.columns and not pd.isna(row[user_name_col]) else ""
+            
+            # Try to find details by user ID first, then by user name
+            details = None
+            if user_id and user_id in user_details:
+                details = user_details[user_id]
+            elif user_name and user_name in user_details:
+                details = user_details[user_name]
+            
+            if details:
+                result_df.at[idx, "AuthorBirthYear"] = details.get('birth_year', "")
+                result_df.at[idx, "AuthorRawAges"] = details.get('raw_ages', "")
         
-        result_df.to_csv(output_file, index=False, sep=separator)
-        
-        logger.info(f"Output written to {output_file}")
-        
+            # Write output
+            separator = '\t' if args.output_tsv else ','
+            file_extension = 'tsv' if args.output_tsv else 'csv'
+            output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
+            
+            result_df.to_csv(output_file, index=False, sep=separator)
+            
+            logger.info(f"Output written to {output_file}")
+            
     finally:
         if client is not None:
             cleanup_cluster(client, args.use_slurm)
