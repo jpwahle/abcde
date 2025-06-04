@@ -27,7 +27,7 @@ ALL_POSTS_CSV=$OUTPUT_DIR/reddit_users_posts.tsv
 
 # --------------------------------------------------------------------
 # Stage 1 – detect self-identified users
-uv run python identify_self_users.py \
+uv run python identify_self_users_reddit.py \
   --input_dir "$INPUT_DIR" \
   --output_csv "$SELF_USERS_CSV" \
   --split "text" \
@@ -38,7 +38,7 @@ uv run python identify_self_users.py \
 
 # --------------------------------------------------------------------
 # Stage 2 – collect all posts of those users & annotate features
-uv run python collect_user_posts.py \
+uv run python collect_user_posts_reddit.py \
   --input_dir "$INPUT_DIR" \
   --self_identified_csv "$SELF_USERS_CSV" \
   --output_csv "$ALL_POSTS_CSV" \

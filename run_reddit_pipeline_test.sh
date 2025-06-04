@@ -36,7 +36,7 @@ SELF_USERS_TSV=$OUTPUT_DIR/reddit_users_test.tsv
 ALL_POSTS_TSV=$OUTPUT_DIR/reddit_users_posts_test.tsv
 
 # ------------------ Stage 1 ---------------------------------------------
-uv run python identify_self_users.py \
+uv run python identify_self_users_reddit.py \
   --input_dir "$INPUT_DIR" \
   --output_csv "$SELF_USERS_TSV" \
   --split "$SPLIT" \
@@ -46,7 +46,7 @@ uv run python identify_self_users.py \
   --output_tsv
 
 # ------------------ Stage 2 ---------------------------------------------
-uv run python collect_user_posts.py \
+uv run python collect_user_posts_reddit.py \
   --input_dir "$INPUT_DIR" \
   --self_identified_csv "$SELF_USERS_TSV" \
   --output_csv "$ALL_POSTS_TSV" \

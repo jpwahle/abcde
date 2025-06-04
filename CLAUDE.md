@@ -4,15 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Reddit linguistic analysis pipeline that identifies users who self-identify demographic traits in their posts, then collects all posts by those users to compute linguistic features (emotions, VAD, tense usage, social warmth, etc.). The pipeline is data-source agnostic - only the file crawler is Reddit-specific.
+This is a linguistic analysis pipeline that identifies users who self-identify demographic traits in their posts, then collects all posts by those users to compute linguistic features (emotions, VAD, tense usage, social warmth, etc.). The pipeline supports both Reddit (large-scale, 3TB+ datasets) and TUSC (smaller, ~12GB datasets) data sources.
 
 ## Architecture
 
-The pipeline consists of two main stages:
-1. **Self-identification detection** (`identify_self_users.py`) - Scans Reddit dumps for users who mention demographic traits like age
-2. **Feature extraction** (`collect_user_posts.py`) - Collects all posts by identified users and enriches them with linguistic features
+The pipeline consists of two main stages with data-source specific entry points:
 
-Core modules:
+### Reddit Processing (Large-scale, parallel)
+1. **Self-identification detection** (`identify_self_users_reddit.py`) - Scans Reddit JSONL dumps for users who mention demographic traits like age
+2. **Feature extraction** (`collect_user_posts_reddit.py`) - Collects all posts by identified users and enriches them with linguistic features
+
+### TUSC Processing (Single-machine)
+1. **Self-identification detection** (`identify_self_users_tusc.py`) - Scans TUSC parquet files for users who mention demographic traits like age  
+2. **Feature extraction** (`collect_user_posts_tusc.py`) - Collects all posts by identified users and enriches them with linguistic features
+
+### Shared Core Modules
+- `core/` - Common processing logic, cluster management, and I/O utilities
+  - `data_processing.py` - Shared self-identification and feature extraction logic
+  - `cluster.py` - Dask cluster setup and management utilities
+  - `io_utils.py` - Common I/O operations and file format handling
+- `reddit/` - Reddit-specific data loading and user management
+  - `data_loader.py` - Reddit JSONL file processing with Dask parallelization
+  - `user_loader.py` - Reddit user data loading utilities
+- `tusc/` - TUSC-specific data loading and user management
+  - `data_loader.py` - TUSC parquet file processing for single-machine operation
+  - `user_loader.py` - TUSC user data loading utilities
+
+### Legacy Modules (still used)
 - `self_identification.py` - Regex-based detector for demographic self-identification (data-source agnostic)
 - `compute_features.py` - NRC lexicon-based feature computation with safe fallbacks for missing data files
 - `helpers.py` - Shared utilities for file processing, filtering, and media handling
@@ -26,35 +44,65 @@ Uses `uv` for dependency management. Core dependencies:
 
 ## Common Commands
 
-### Local execution:
+### Reddit Processing
+
+#### Local execution:
 ```bash
 # Stage 1: Find self-identified users (outputs CSV with majority-voted age and flattened structure)
-uv run python identify_self_users.py --input_dir /path/to/reddit/ --output_csv outputs/self_users.csv --n_workers 32
+uv run python identify_self_users_reddit.py --input_dir /path/to/reddit/ --output_csv outputs/self_users.csv --n_workers 32
 
 # Stage 2: Collect posts and compute features (outputs CSV with linguistic features)
-uv run python collect_user_posts.py --input_dir /path/to/reddit/ --self_identified_csv outputs/self_users.csv --output_csv outputs/self_users_posts.csv --n_workers 32
+uv run python collect_user_posts_reddit.py --input_dir /path/to/reddit/ --self_identified_csv outputs/self_users.csv --output_csv outputs/self_users_posts.csv --n_workers 32
 ```
 
-### SLURM cluster execution:
+#### SLURM cluster execution:
 Add `--use_slurm` flag and adjust workers/memory:
 ```bash
-uv run python identify_self_users.py --input_dir /shared/reddit --output_csv outputs/self_users.csv --n_workers 128 --memory_per_worker 8GB --use_slurm
+uv run python identify_self_users_reddit.py --input_dir /shared/reddit --output_csv outputs/self_users.csv --n_workers 128 --memory_per_worker 8GB --use_slurm
 ```
 
-### Full pipeline (SLURM):
+#### Full Reddit pipeline (SLURM):
 ```bash
 sbatch run_reddit_pipeline.sh
 ```
 
+### TUSC Processing
+
+#### Local execution:
+```bash
+# Stage 1: Find self-identified users
+uv run python identify_self_users_tusc.py --input_file /path/to/tusc.parquet --output_csv outputs/tusc_self_users.csv
+
+# Stage 2: Collect posts and compute features
+uv run python collect_user_posts_tusc.py --input_file /path/to/tusc.parquet --self_identified_csv outputs/tusc_self_users.csv --output_csv outputs/tusc_user_posts.csv
+```
+
+#### Full TUSC pipeline (SLURM):
+```bash
+sbatch run_tusc_pipeline.sh
+```
+
 ## Data Requirements
 
+### Reddit
 - Expects uncompressed Reddit Pushshift files (`RS_YYYY-MM.jsonl`) in input directory
-- NRC lexicon files should be placed in `data/` directory (graceful fallback if missing)
 - Uses both `author_id` (preferred) and `author` (fallback) for user identification
+- Supports `text` vs `multimodal` content filtering
+
+### TUSC
+- Expects TUSC parquet files (either city or country splits)
+- Split type is auto-determined from filename if not specified
+- Uses UserID/userID and UserName/userName fields for identification
+
+### Shared
+- NRC lexicon files should be placed in `data/` directory (graceful fallback if missing)
+- All outputs support both CSV and TSV formats
 
 ## Key Design Patterns
 
+- **Modular architecture**: Clear separation between Reddit (large-scale parallel) and TUSC (single-machine) processing
+- **Shared core logic**: Common functions for self-identification detection and feature computation
 - **Graceful degradation**: Feature computation falls back to empty dicts if lexicon files missing
-- **Dual identification**: Uses both stable `author_id` and username for user matching across dataset inconsistencies
-- **Configurable splits**: `text` vs `multimodal` content filtering
-- **Distributed processing**: Dask-based parallelization with SLURM support
+- **Dual identification**: Uses both stable user IDs and usernames for user matching across dataset inconsistencies
+- **Configurable processing**: Different scaling strategies for different data sources
+- **Distributed processing**: Dask-based parallelization with SLURM support for Reddit; simple pandas processing for TUSC
