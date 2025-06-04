@@ -7,8 +7,8 @@
 
 set -euxo pipefail
 
-INPUT_FILE=/path/to/tusc.parquet
-OUTPUT_DIR=/path/to/output/tusc
+INPUT_FILE="/beegfs/wahle/datasets/tusc/tusc-country.parquet"
+OUTPUT_DIR="/beegfs/wahle/github/abcde/outputs_tusc"
 
 srun python process_tusc.py \
     --input_file "$INPUT_FILE" \

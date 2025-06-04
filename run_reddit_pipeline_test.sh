@@ -8,10 +8,14 @@
 
 set -euxo pipefail
 
-INPUT_DIR=/path/to/sample/jsonl
-OUTPUT_DIR=/path/to/output/reddit_test
+# sample paths for testing
+INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted/RS_2010-01
+OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit_test
+# number of lines per chunk for large JSONL files (0 = process whole file at once)
+CHUNK_SIZE=${CHUNK_SIZE:-100000}
 
 srun python process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
-    --workers "$SLURM_CPUS_PER_TASK"
+    --workers "$SLURM_CPUS_PER_TASK" \
+    --chunk_size "$CHUNK_SIZE"
