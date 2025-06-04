@@ -61,6 +61,7 @@ def process_chunk_stage1(task):
         results_local.append(
             {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
         )
+    print(f"Processed {len(results_local)} posts from {path}. Found {len(matches)} self-identified users.")
     return results_local
 
 
@@ -112,6 +113,7 @@ def process_chunk_stage2(task):
         else:
             post["DMGAgeAtPost"] = ""
         results_local.append(post)
+    print(f"Processed {len(results_local)} posts from {path}")
     return results_local
 
 

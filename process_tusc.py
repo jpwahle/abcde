@@ -102,8 +102,6 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         df_users = pd.read_csv(self_users_file, sep='\t')
         _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
         
-        print(f"_user_birthyear_map: {_user_birthyear_map}")
-
         posts_results: list[dict] = []
 
         parquet_file = pq.ParquetFile(input_file)

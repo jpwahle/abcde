@@ -449,7 +449,6 @@ def flatten_result_to_csv_row(
     # Compute majority birthyear and raw birthyear extractions
     self_id = result.get("self_identification", {})
     if data_source == "tusc":
-        print(result)
         ref_year = int(result.get("Year", ""))
     else:
         ts = result.get("post", {}).get("created_utc") or result.get("created_utc")
