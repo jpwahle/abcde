@@ -469,7 +469,9 @@ def flatten_result_to_csv_row(
             am = self_id.get("age", [])
             row["SelfIdentificationAgeMajorityVote"] = am[0] if am else ""
             row["SelfIdentificationRawAges"] = "|".join(map(str, am))
-        post = result.get("post", {})
+        # support nested post dict or flat result dict (stage2)
+        post = result.get("post", result)
+        # static fields
         row["PostID"] = post.get("id", "")
         row["PostSubreddit"] = post.get("subreddit", "")
         row["PostTitle"] = post.get("title", "")
@@ -480,6 +482,15 @@ def flatten_result_to_csv_row(
         row["PostPermalink"] = post.get("permalink", "")
         row["PostUrl"] = post.get("url", "")
         row["PostMediaPath"] = post.get("media_path", "")
+        # include any additional feature fields from the post dict
+        static_keys = {
+            "id", "subreddit", "title", "selftext", "created_utc",
+            "score", "num_comments", "permalink", "url", "media_path",
+            "author"
+        }
+        for key, val in post.items():
+            if key not in static_keys:
+                row[key] = val
     return row
 
 def get_csv_fieldnames(data_source: str, split: Optional[str] = None) -> List[str]:
@@ -513,8 +524,15 @@ def write_results_to_csv(
     ensure_output_directory(out)
     if results:
         rows = [flatten_result_to_csv_row(r, data_source, split) for r in results]
+        # determine header including any feature columns (e.g., for Reddit stage2)
+        if data_source != "tusc":
+            static_fields = get_csv_fieldnames(data_source, split)
+            extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
+            fieldnames = static_fields + extra_fields
+        else:
+            fieldnames = get_csv_fieldnames(data_source, split)
         with open(out, 'w', encoding='utf-8', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=get_csv_fieldnames(data_source, split), delimiter=sep)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
