@@ -295,12 +295,35 @@ def run_tusc_pipeline(
     # Initialize detector
     detector = SelfIdentificationDetector()
 
-    # Configure Dask cluster
+    # First, determine optimal configuration based on data size
+    logger.info(f"Analyzing {input_file} to determine optimal cluster configuration")
+    
+    if test_mode:
+        # In test mode, read only a subset
+        df = pd.read_parquet(input_file, engine='pyarrow')
+        df = df.head(test_samples)
+        optimal_workers = min(n_workers, len(df) // chunk_size + 1)
+        logger.info(f"Test mode: Processing {len(df)} samples with {optimal_workers} workers")
+    else:
+        # Calculate appropriate blocksize to ensure partitions fit in worker memory
+        # Assume each row is ~2KB on average, use 50% of worker memory for safety
+        memory_gb = float(memory_per_worker.replace('GB', ''))
+        max_partition_size_mb = int(memory_gb * 1024 * 0.5)  # 50% of worker memory in MB
+        blocksize = f"{max_partition_size_mb}MB"
+        
+        # Read metadata to determine optimal number of partitions
+        logger.info(f"Reading parquet metadata to calculate optimal partitioning with blocksize={blocksize}")
+        ddf_temp = dd.read_parquet(input_file, engine='pyarrow', blocksize=blocksize)
+        optimal_workers = ddf_temp.npartitions
+        total_rows = len(ddf_temp)
+        logger.info(f"Dataset has {total_rows} rows, optimal partitioning suggests {optimal_workers} workers")
+
+    # Now configure and start Dask cluster with optimal worker count
     if use_slurm:
         # Ensure log directory exists for worker logs
         os.makedirs("logs", exist_ok=True)
         logger.info(
-            f"Using SLURM cluster with {n_workers} workers, memory {memory_per_worker} – dask logs in logs/"
+            f"Using SLURM cluster with {optimal_workers} workers, memory {memory_per_worker} – dask logs in logs/"
         )
         cluster = SLURMCluster(
             cores=1,
@@ -315,33 +338,22 @@ def run_tusc_pipeline(
                 "logs/dask-%j.err",
             ],
         )
-        cluster.scale(n_workers)
+        cluster.scale(optimal_workers)
         client = Client(cluster)
     else:
-        logger.info(f"Starting local Dask cluster with {n_workers} workers")
-        client = Client(n_workers=n_workers, threads_per_worker=1, memory_limit=memory_per_worker)
+        logger.info(f"Starting local Dask cluster with {optimal_workers} workers")
+        client = Client(n_workers=optimal_workers, threads_per_worker=1, memory_limit=memory_per_worker)
 
     logger.info(f"Dashboard: {client.dashboard_link}")
 
     try:
-        # Read parquet file with Dask DataFrame
-        logger.info(f"Reading {input_file} with Dask DataFrame")
+        # Now read the data with the optimized configuration
+        logger.info(f"Reading {input_file} with Dask DataFrame using optimized configuration")
         
         if test_mode:
-            # In test mode, read only a subset
-            df = pd.read_parquet(input_file, engine='pyarrow')
-            df = df.head(test_samples)
-            ddf = dd.from_pandas(df, npartitions=min(n_workers, len(df) // chunk_size + 1))
-            logger.info(f"Test mode: Processing {len(df)} samples")
+            ddf = dd.from_pandas(df, npartitions=optimal_workers)
         else:
-            # Calculate appropriate blocksize to ensure partitions fit in worker memory
-            # Assume each row is ~1KB on average, use 75% of worker memory for safety
-            memory_gb = float(memory_per_worker.replace('GB', ''))
-            max_partition_size_mb = int(memory_gb * 1024 * 0.75)  # 75% of worker memory in MB
-            blocksize = f"{max_partition_size_mb}MB"
-            
-            # Read with Dask using controlled blocksize to prevent memory issues
-            logger.info(f"Reading parquet with blocksize={blocksize} to fit in {memory_per_worker} worker memory")
+            # Re-read with the same blocksize (should be cached/fast)
             ddf = dd.read_parquet(input_file, engine='pyarrow', blocksize=blocksize)
             logger.info(f"Processing {len(ddf)} rows with {ddf.npartitions} partitions")
 

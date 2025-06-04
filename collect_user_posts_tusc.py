@@ -157,11 +157,19 @@ def process_tusc_user_posts(
             ddf = dd.from_pandas(df, npartitions=min(n_workers, len(df) // chunk_size + 1))
             logger.info(f"Test mode: Processing {len(df)} samples")
         else:
-            # Read with Dask and partition appropriately
-            ddf = dd.read_parquet(input_file, engine='pyarrow')
-            # Repartition to have reasonable chunk sizes
-            ddf = ddf.repartition(partition_size=f"{chunk_size} rows")
+            # Calculate appropriate blocksize to ensure partitions fit in worker memory
+            memory_gb = float(memory_per_worker.replace('GB', ''))
+            max_partition_size_mb = int(memory_gb * 1024 * 0.50) # 75% of worker memory in MB
+            blocksize = f"{max_partition_size_mb}MB"
+            
+            # Read with Dask using controlled blocksize to prevent memory issues
+            logger.info(f"Reading parquet with blocksize={blocksize} to fit in {memory_per_worker} worker memory")
+            ddf = dd.read_parquet(input_file, engine='pyarrow', blocksize=blocksize)
             logger.info(f"Processing {len(ddf)} rows with {ddf.npartitions} partitions")
+
+            # Set the number of workers to the number of partitions
+            n_workers = ddf.npartitions
+            logger.info(f"Setting number of workers to {n_workers}")
 
         # Apply filtering and processing to each partition
         def process_partition(df_partition):

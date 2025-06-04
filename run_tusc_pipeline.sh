@@ -22,8 +22,8 @@
 INPUT_FILE=${INPUT_FILE:-"/beegfs/wahle/datasets/tusc/tusc-country.parquet"}
 OUTPUT_DIR=${OUTPUT_DIR:-"/beegfs/wahle/github/abcde/outputs_tusc"}
 CHUNK_SIZE=1000
-N_WORKERS=256
-MEM_PER_WORKER=4GB
+N_WORKERS=64
+MEM_PER_WORKER=2GB
 
 echo "Starting TUSC processing pipeline (Two-Stage Approach)"
 echo "Input file: $INPUT_FILE"
@@ -77,14 +77,6 @@ STAGE2_ARGS=(
     --use_slurm
     --output_tsv
 )
-
-# Add test mode arguments if enabled
-if [ "$TEST_MODE" = "true" ]; then
-    STAGE2_ARGS+=(--test_mode)
-    if [ -n "${TEST_SAMPLES:-}" ]; then
-        STAGE2_ARGS+=(--test_samples "$TEST_SAMPLES")
-    fi
-fi
 
 # Stage 2: Collect user posts and compute features
 uv run python collect_user_posts_tusc.py "${STAGE2_ARGS[@]}"
