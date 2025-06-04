@@ -14,8 +14,8 @@
 # Adjust paths
 INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted              # directory containing RS_*.jsonl
 OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit
-N_WORKERS=256                               # how many Dask workers to start
-MEM_PER_WORKER=4GB                          # memory per worker for SLURMCluster
+N_WORKERS=128                               # how many Dask workers to start
+MEM_PER_WORKER=16GB                          # memory per worker for SLURMCluster
 # --------------------------------------------------------------------
 
 mkdir -p $OUTPUT_DIR logs

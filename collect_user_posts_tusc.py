@@ -5,6 +5,8 @@ Designed for smaller datasets that can be processed on a single machine.
 """
 import argparse
 import logging
+import csv
+import pandas as pd
 
 from core.io_utils import ensure_output_directory
 from tusc.data_loader import load_tusc_file, determine_tusc_split
@@ -16,6 +18,74 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
+
+
+def load_tusc_user_details(self_id_csv: str):
+    """Load user details including birthyears and raw ages from self-identification CSV."""
+    delimiter = "\t" if self_id_csv.lower().endswith(".tsv") else ","
+    user_details = {}
+    
+    with open(self_id_csv, "r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        for record in reader:
+            # Get both possible user ID fields
+            author_id = record.get("Author", "").strip()
+            author_name = record.get("AuthorName", "").strip()
+            
+            # Extract birthyear and raw ages
+            birth_year = None
+            age_str = record.get("SelfIdentificationAgeMajorityVote", "").strip()
+            raw_ages = record.get("SelfIdentificationRawAges", "").strip()
+            
+            if age_str:
+                try:
+                    age_val = int(float(age_str))
+                    # Calculate birth year from age and post timestamp
+                    created_at_str = record.get("PostCreatedAt", "").strip()
+                    post_year_str = record.get("PostYear", "").strip()
+                    
+                    # Try to get year from PostYear field first, then from timestamp
+                    if post_year_str:
+                        try:
+                            post_year = int(post_year_str)
+                        except ValueError:
+                            post_year = None
+                    else:
+                        if created_at_str:
+                            try:
+                                from datetime import datetime
+                                if created_at_str.endswith('Z') or '+' in created_at_str:
+                                    created_at_str_clean = created_at_str.replace('Z', '+00:00') if created_at_str.endswith('Z') else created_at_str
+                                    dt = datetime.fromisoformat(created_at_str_clean)
+                                    post_year = dt.year
+                                else:
+                                    dt = datetime.strptime(created_at_str, '%a %b %d %H:%M:%S %z %Y')
+                                    post_year = dt.year
+                            except (ValueError, TypeError):
+                                post_year = None
+                        else:
+                            post_year = None
+
+                    if post_year is not None:
+                        if 1800 <= age_val <= post_year:
+                            birth_year = age_val
+                        else:
+                            birth_year = post_year - age_val
+                except ValueError:
+                    pass
+            
+            details = {
+                'birth_year': birth_year,
+                'raw_ages': raw_ages
+            }
+            
+            # Store details for both author ID and name if available
+            if author_id:
+                user_details[author_id] = details
+            if author_name:
+                user_details[author_name] = details
+    
+    return user_details
 
 
 def main():
@@ -45,6 +115,10 @@ def main():
         logger.warning("No target user IDs found. Exiting.")
         return
     
+    # Load user details including raw ages and birthyears
+    user_details = load_tusc_user_details(args.self_identified_csv)
+    logger.info(f"Loaded user details for {len(user_details)} users.")
+    
     # Process TUSC file
     result_df = load_tusc_file(
         input_file=args.input_file,
@@ -57,6 +131,30 @@ def main():
     )
     
     logger.info(f"Processed {len(result_df)} rows from target users")
+    
+    # Add birthyear and raw ages columns to the dataframe
+    user_id_col = "UserID" if args.split == "country" else "userID"
+    user_name_col = "UserName" if args.split == "country" else "userName"
+    
+    # Create new columns
+    result_df["AuthorBirthYear"] = ""
+    result_df["AuthorRawAges"] = ""
+    
+    # Fill in the details for each row
+    for idx, row in result_df.iterrows():
+        user_id = str(row[user_id_col]) if not pd.isna(row[user_id_col]) else ""
+        user_name = str(row[user_name_col]) if user_name_col in result_df.columns and not pd.isna(row[user_name_col]) else ""
+        
+        # Try to find details by user ID first, then by user name
+        details = None
+        if user_id and user_id in user_details:
+            details = user_details[user_id]
+        elif user_name and user_name in user_details:
+            details = user_details[user_name]
+        
+        if details:
+            result_df.at[idx, "AuthorBirthYear"] = details.get('birth_year', "")
+            result_df.at[idx, "AuthorRawAges"] = details.get('raw_ages', "")
     
     # Write output
     separator = '\t' if args.output_tsv else ','

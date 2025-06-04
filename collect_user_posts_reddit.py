@@ -20,7 +20,55 @@ logging.basicConfig(
 )
 
 
-def flatten_reddit_post_to_csv_row(post_data):
+def load_reddit_user_details(self_id_csv: str):
+    """Load user details including birthyears and raw ages from self-identification CSV."""
+    delimiter = "\t" if self_id_csv.lower().endswith(".tsv") else ","
+    user_details = {}
+    
+    with open(self_id_csv, "r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        for record in reader:
+            author_name = record.get("Author", "").strip()
+            if not author_name or author_name in ("AutoModerator", "Bot", "[deleted]"):
+                continue
+                
+            # Extract birthyear and raw ages
+            birth_year = None
+            age_str = record.get("SelfIdentificationAgeMajorityVote", "").strip()
+            raw_ages = record.get("SelfIdentificationRawAges", "").strip()
+            
+            if age_str:
+                try:
+                    age_val = int(float(age_str))
+                    # Calculate birth year from age and post timestamp
+                    created_utc_str = record.get("PostCreatedUtc", "").strip()
+                    if created_utc_str:
+                        try:
+                            from datetime import datetime, timezone
+                            created_utc = float(created_utc_str)
+                            post_year = datetime.fromtimestamp(created_utc, timezone.utc).year
+                        except (ValueError, TypeError, OSError):
+                            post_year = None
+                    else:
+                        post_year = None
+
+                    if post_year is not None:
+                        if 1800 <= age_val <= post_year:
+                            birth_year = age_val
+                        else:
+                            birth_year = post_year - age_val
+                except ValueError:
+                    pass
+            
+            user_details[author_name] = {
+                'birth_year': birth_year,
+                'raw_ages': raw_ages
+            }
+    
+    return user_details
+
+
+def flatten_reddit_post_to_csv_row(post_data, user_details=None):
     """Flatten Reddit post data for CSV output."""
     row = {}
     
@@ -39,11 +87,22 @@ def flatten_reddit_post_to_csv_row(post_data):
     # Author information
     author = post_data.get("author", {})
     if isinstance(author, dict):
-        row["AuthorName"] = author.get("name", "")
+        author_name = author.get("name", "")
+        row["AuthorName"] = author_name
         row["AuthorAge"] = author.get("age", "")
     else:
-        row["AuthorName"] = str(author) if author else ""
+        author_name = str(author) if author else ""
+        row["AuthorName"] = author_name
         row["AuthorAge"] = ""
+    
+    # Add birthyear and raw ages from user details
+    if user_details and author_name in user_details:
+        details = user_details[author_name]
+        row["AuthorBirthYear"] = details.get('birth_year', "")
+        row["AuthorRawAges"] = details.get('raw_ages', "")
+    else:
+        row["AuthorBirthYear"] = ""
+        row["AuthorRawAges"] = ""
     
     # All linguistic features
     feature_fields = [
@@ -105,9 +164,13 @@ def main():
     # Ensure output directory exists
     ensure_output_directory(args.output_csv)
     
-    # Load user birth years
+    # Load user birth years (for existing functionality)
     user_birthyears = load_reddit_user_birthyears(args.self_identified_csv)
     logger.info(f"Loaded {len(user_birthyears)} unique users with self-identification.")
+    
+    # Load user details including raw ages
+    user_details = load_reddit_user_details(args.self_identified_csv)
+    logger.info(f"Loaded user details for {len(user_details)} users.")
     
     # Setup Dask cluster
     client = setup_dask_cluster(
@@ -137,7 +200,7 @@ def main():
         
         if results:
             # Flatten results for CSV
-            csv_rows = [flatten_reddit_post_to_csv_row(result) for result in results]
+            csv_rows = [flatten_reddit_post_to_csv_row(result, user_details) for result in results]
             
             # Define fieldnames
             fieldnames = [
@@ -145,7 +208,7 @@ def main():
                 "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
                 "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
                 # Author information  
-                "AuthorName", "AuthorAge",
+                "AuthorName", "AuthorAge", "AuthorBirthYear", "AuthorRawAges",
                 # Basic features
                 "WordCount",
                 # VAD features
@@ -193,7 +256,7 @@ def main():
                 fieldnames = [
                     "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc", 
                     "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
-                    "AuthorName", "AuthorAge", "WordCount"
+                    "AuthorName", "AuthorAge", "AuthorBirthYear", "AuthorRawAges", "WordCount"
                 ]
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
                 writer.writeheader()

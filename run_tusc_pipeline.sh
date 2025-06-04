@@ -35,8 +35,8 @@ set -euo pipefail
 
 # Generate output filenames based on input filename
 INPUT_NAME=$(basename "$INPUT_FILE" .parquet)
-SELF_ID_CSV="$OUTPUT_DIR/${INPUT_NAME}_self_users.csv"
-FINAL_OUTPUT_CSV="$OUTPUT_DIR/${INPUT_NAME}_user_posts.csv"
+SELF_ID_CSV="$OUTPUT_DIR/${INPUT_NAME}_self_users.tsv"
+FINAL_OUTPUT_CSV="$OUTPUT_DIR/${INPUT_NAME}_user_posts.tsv"
 
 echo "Stage 1: Identifying self-identified users..."
 echo "Output will be written to: $SELF_ID_CSV"
