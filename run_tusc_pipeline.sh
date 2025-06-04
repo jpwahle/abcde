@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=64GB
+#SBATCH --mem=128GB
 #SBATCH --output=logs/tusc_%j.out
 #SBATCH --error=logs/tusc_%j.err
 
@@ -22,7 +22,7 @@
 INPUT_FILE=${INPUT_FILE:-"/beegfs/wahle/datasets/tusc/tusc-country.parquet"}
 OUTPUT_DIR=${OUTPUT_DIR:-"/beegfs/wahle/github/abcde/outputs_tusc"}
 N_WORKERS=${N_WORKERS:-128}
-MEMORY_PER_WORKER=${MEMORY_PER_WORKER:-4GB}
+MEMORY_PER_WORKER=${MEMORY_PER_WORKER:-8GB}
 CHUNK_SIZE=${CHUNK_SIZE:-100000}
 
 echo "Starting TUSC processing pipeline (Two-Stage Approach)"

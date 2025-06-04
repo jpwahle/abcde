@@ -8,7 +8,7 @@ import pandas as pd
 
 from self_identification import SelfIdentificationDetector
 from core.cluster import setup_dask_cluster, cleanup_cluster
-from core.io_utils import ensure_output_directory, write_results_to_csv
+from core.io_utils import ensure_output_directory, concatenate_chunk_files, create_temp_chunk_dir, cleanup_temp_dir
 from tusc.data_loader import load_tusc_file, determine_tusc_split
 
 logger = logging.getLogger("identify_self_users_tusc")
@@ -33,6 +33,8 @@ def main():
     parser.add_argument("--memory_per_worker", type=str, default="4GB", help="Memory per worker")
     parser.add_argument("--use_slurm", action="store_true", help="Use SLURM cluster for Dask workers")
     parser.add_argument("--chunk_size", type=int, default=100000, help="Chunk size for parallel processing")
+    parser.add_argument("--max_entries_in_memory", type=int, default=10000, help="Maximum entries to keep in memory per worker")
+    parser.add_argument("--chunk_output_dir", type=str, help="Directory for temporary chunk files (auto-created if not specified)")
 
     args = parser.parse_args()
     
@@ -58,34 +60,74 @@ def main():
         )
     
     try:
-        # Process TUSC file
-        results_df = load_tusc_file(
-            input_file=args.input_file,
-            detector=detector,
-            split=args.split,
-            min_words=args.min_words,
-            max_words=args.max_words,
-            mode="self_identification",
-            test_mode=args.test_mode,
-            test_samples=args.test_samples,
-            include_features=False,
-            chunk_size=args.chunk_size,
-            client=client
-        )
+        # Create or use provided chunk output directory
+        if args.chunk_output_dir:
+            chunk_output_dir = args.chunk_output_dir
+            cleanup_chunks = False
+        else:
+            chunk_output_dir = create_temp_chunk_dir("tusc_self_id_chunks_")
+            cleanup_chunks = True
+        
+        # Process TUSC file with chunk-based approach for parallel processing
+        if not args.test_mode and client is not None:
+            # Use chunk-based parallel processing for full runs
+            from tusc.data_loader import load_tusc_files_for_self_identification
+            
+            results = load_tusc_files_for_self_identification(
+                input_file=args.input_file,
+                detector=detector,
+                split=args.split,
+                min_words=args.min_words,
+                max_words=args.max_words,
+                chunk_size=args.chunk_size,
+                client=client,
+                output_dir=chunk_output_dir,
+                max_entries_in_memory=args.max_entries_in_memory
+            )
+            
+            # Convert to DataFrame for compatibility
+            results_df = pd.DataFrame(results) if results else pd.DataFrame()
+        else:
+            # Use streaming approach for test mode or single-machine
+            results_df = load_tusc_file(
+                input_file=args.input_file,
+                detector=detector,
+                split=args.split,
+                min_words=args.min_words,
+                max_words=args.max_words,
+                mode="self_identification",
+                test_mode=args.test_mode,
+                test_samples=args.test_samples,
+                include_features=False,
+                chunk_size=args.chunk_size,
+                client=client
+            )
     
         logger.info(f"Detected {len(results_df)} self-identification posts. Writing to {args.output_csv}")
         
-        # Convert DataFrame to list of dictionaries for write_results_to_csv
-        results = results_df.to_dict('records') if not results_df.empty else []
+        # Write results directly from DataFrame
+        if not results_df.empty:
+            output_format = "tsv" if args.output_tsv else "csv"
+            separator = '\t' if args.output_tsv else ','
+            file_extension = 'tsv' if args.output_tsv else 'csv'
+            output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
+            
+            ensure_output_directory(output_file)
+            results_df.to_csv(output_file, index=False, sep=separator)
+            logger.info(f"Output written to {output_file}")
+        else:
+            logger.warning("No results found. Creating empty CSV file.")
+            output_format = "tsv" if args.output_tsv else "csv"
+            file_extension = 'tsv' if args.output_tsv else 'csv'
+            output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
+            
+            ensure_output_directory(output_file)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write("")  # Create empty file
         
-        # Write results using shared utility
-        write_results_to_csv(
-            results=results,
-            output_csv=args.output_csv,
-            output_tsv=args.output_tsv,
-            data_source="tusc",
-            split=args.split
-        )
+        # Clean up chunk directory if it was temporary
+        if cleanup_chunks:
+            cleanup_temp_dir(chunk_output_dir)
         
     finally:
         if client is not None:

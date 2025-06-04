@@ -188,116 +188,261 @@ def process_tusc_batch_for_user_posts(
     return filtered_df
 
 
-def create_parquet_chunks(
+def create_parquet_batch_specs(
     input_file: str,
-    chunk_size: int = 100000
+    batch_size: int = 100000
 ) -> List[Dict[str, Any]]:
-    """Create chunks from parquet file for parallel processing.
+    """Create batch specifications for parallel processing of parquet file.
     
-    Returns list of chunk metadata with row ranges for each partition.
+    Returns list of batch metadata for distributed processing.
     """
     # Get total number of rows
     parquet_file = pq.ParquetFile(input_file)
     total_rows = parquet_file.metadata.num_rows
+    total_batches = total_rows // batch_size + 1
     
-    chunks = []
-    for start in range(0, total_rows, chunk_size):
-        end = min(start + chunk_size, total_rows)
-        chunks.append({
-            "file_path": input_file,
-            "start_row": start,
-            "end_row": end,
-            "num_rows": end - start
-        })
+    batch_specs = []
+    for batch_idx in range(total_batches):
+        start_row = batch_idx * batch_size
+        end_row = min(start_row + batch_size, total_rows)
+        
+        if start_row < total_rows:  # Only add if there are rows to process
+            batch_specs.append({
+                "file_path": input_file,
+                "batch_idx": batch_idx,
+                "batch_size": batch_size,
+                "start_row": start_row,
+                "end_row": end_row,
+                "num_rows": end_row - start_row
+            })
     
-    logger.info(f"Created {len(chunks)} chunks from parquet file with {total_rows} total rows")
-    return chunks
+    logger.info(f"Created {len(batch_specs)} batch specs from parquet file with {total_rows} total rows")
+    return batch_specs
 
 
-def _read_parquet_chunk_safe(file_path: str, start_row: int, end_row: int) -> pd.DataFrame:
-    """Safely read a specific chunk of rows from parquet file."""
-    try:
-        # Try to use pyarrow streaming for memory efficiency
-        with pq.ParquetFile(file_path) as pf:
-            # Calculate which row groups we need
-            row_groups_to_read = []
-            current_row = 0
+def process_parquet_in_batches(
+    input_file: str,
+    batch_size: int,
+    process_batch_fn,
+    **process_kwargs
+) -> List[Any]:
+    """Process parquet file batch-by-batch using streaming approach."""
+    import gc
+    from tqdm import tqdm
+    
+    results = []
+    
+    with pq.ParquetFile(input_file) as parquet_file:
+        total_batches = parquet_file.metadata.num_rows // batch_size + 1
+        
+        logger.info(f"Processing {parquet_file.metadata.num_rows} rows in {total_batches} batches of {batch_size}")
+        
+        for batch in tqdm(parquet_file.iter_batches(batch_size=batch_size), total=total_batches, desc="Processing batches"):
+            # Convert Arrow batch to pandas DataFrame
+            df_batch = batch.to_pandas()
             
-            for i in range(pf.num_row_groups):
-                rg_metadata = pf.metadata.row_group(i)
-                rg_end = current_row + rg_metadata.num_rows
-                
-                # Check if this row group overlaps with our target range
-                if current_row < end_row and rg_end > start_row:
-                    row_groups_to_read.append(i)
-                
-                current_row = rg_end
-                if current_row >= end_row:
-                    break
+            if df_batch.empty:
+                continue
             
-            if not row_groups_to_read:
-                return pd.DataFrame()
+            # Process the batch
+            batch_results = process_batch_fn(df_batch, **process_kwargs)
             
-            # Read only the necessary row groups
-            table = pf.read_row_groups(row_groups_to_read)
-            df = table.to_pandas()
+            if batch_results:
+                if isinstance(batch_results, list):
+                    results.extend(batch_results)
+                elif isinstance(batch_results, pd.DataFrame):
+                    if not batch_results.empty:
+                        results.append(batch_results)
+                else:
+                    results.append(batch_results)
             
-            # Now slice to exact range if needed
-            if len(df) > 0:
-                actual_start = max(0, start_row - sum(pf.metadata.row_group(i).num_rows for i in range(row_groups_to_read[0])))
-                actual_end = min(len(df), end_row - start_row + actual_start)
-                df = df.iloc[actual_start:actual_end]
-            
-            return df
-            
-    except Exception as e:
-        logger.warning(f"Failed optimized parquet reading, falling back to full read: {e}")
-        # Fallback to reading full file and slicing (less memory efficient but reliable)
-        df_full = pd.read_parquet(file_path, engine='pyarrow')
-        return df_full.iloc[start_row:end_row]
+            # Force garbage collection after each batch
+            del df_batch, batch_results
+            gc.collect()
+    
+    return results
 
 
-def process_tusc_chunk_for_self_identification_worker(
-    chunk_info: Dict[str, Any],
+def process_tusc_batch_for_self_identification_worker(
+    batch_spec: Dict[str, Any],
     split: str,
     min_words: int,
     max_words: int,
-) -> List[Dict[str, Any]]:
-    """Process a single parquet chunk for self-identification detection.
+    output_dir: str,
+    max_entries_in_memory: int = 10000
+) -> str:
+    """Process a single parquet batch for self-identification detection using streaming.
     
-    Creates detector locally to avoid large object transfer to workers.
+    Writes results directly to disk chunks to avoid large memory usage and transfers.
+    Returns the path to the written chunk file.
     """
+    import gc
+    import os
+    import pandas as pd
+    from pathlib import Path
+    
     # Create detector locally on worker to avoid serialization overhead
     from self_identification import SelfIdentificationDetector
     detector = SelfIdentificationDetector()
     
-    df_chunk = _read_parquet_chunk_safe(
-        chunk_info["file_path"],
-        chunk_info["start_row"],
-        chunk_info["end_row"]
-    )
+    # Create output directory if it doesn't exist
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     
-    return process_tusc_batch_for_self_identification(
-        df_chunk, detector, split, min_words, max_words
-    )
+    # Generate unique chunk filename
+    worker_id = os.getpid()  # Use process ID as worker identifier
+    batch_idx = batch_spec["batch_idx"]
+    chunk_filename = f"chunk_worker{worker_id}_batch{batch_idx}.csv"
+    chunk_path = os.path.join(output_dir, chunk_filename)
+    
+    # Process data in smaller sub-batches to control memory
+    all_results = []
+    
+    with pq.ParquetFile(batch_spec["file_path"]) as parquet_file:
+        # Skip to the correct batch using iter_batches with offset
+        batch_size = batch_spec["batch_size"]
+        
+        # Iterate through batches until we reach our target batch
+        for current_idx, batch in enumerate(parquet_file.iter_batches(batch_size=batch_size)):
+            if current_idx == batch_spec["batch_idx"]:
+                df_batch = batch.to_pandas()
+                
+                # Process in sub-batches to control memory usage
+                for start_idx in range(0, len(df_batch), max_entries_in_memory):
+                    end_idx = min(start_idx + max_entries_in_memory, len(df_batch))
+                    df_sub_batch = df_batch.iloc[start_idx:end_idx]
+                    
+                    sub_batch_results = process_tusc_batch_for_self_identification(
+                        df_sub_batch, detector, split, min_words, max_words
+                    )
+                    
+                    all_results.extend(sub_batch_results)
+                    
+                    # Write to disk if we have enough results to avoid memory buildup
+                    if len(all_results) >= max_entries_in_memory:
+                        # Convert to DataFrame and append to file
+                        if all_results:
+                            results_df = pd.DataFrame(all_results)
+                            # Write header only on first write
+                            write_header = not os.path.exists(chunk_path)
+                            results_df.to_csv(chunk_path, mode='a', index=False, header=write_header)
+                            
+                        # Clear results from memory
+                        all_results = []
+                        del results_df
+                        gc.collect()
+                    
+                    # Clean up sub-batch
+                    del df_sub_batch, sub_batch_results
+                    gc.collect()
+                
+                # Clean up main batch
+                del df_batch
+                gc.collect()
+                break
+            elif current_idx > batch_spec["batch_idx"]:
+                break  # We've gone past our target batch
+    
+    # Write any remaining results
+    if all_results:
+        results_df = pd.DataFrame(all_results)
+        write_header = not os.path.exists(chunk_path)
+        results_df.to_csv(chunk_path, mode='a', index=False, header=write_header)
+        del results_df, all_results
+        gc.collect()
+    
+    # Return the chunk file path (empty file if no results)
+    if not os.path.exists(chunk_path):
+        # Create empty file to indicate this worker completed
+        Path(chunk_path).touch()
+    
+    return chunk_path
 
 
-def process_tusc_chunk_for_user_posts(
-    chunk_info: Dict[str, Any],
+def process_tusc_batch_for_user_posts_worker(
+    batch_spec: Dict[str, Any],
     target_user_ids: Set[str],
     split: str,
-    include_features: bool = True
-) -> pd.DataFrame:
-    """Process a single parquet chunk for user post collection."""
-    df_chunk = _read_parquet_chunk_safe(
-        chunk_info["file_path"],
-        chunk_info["start_row"],
-        chunk_info["end_row"]
-    )
+    include_features: bool = True,
+    output_dir: str = None,
+    max_entries_in_memory: int = 10000
+) -> str:
+    """Process a single parquet batch for user post collection using streaming.
     
-    return process_tusc_batch_for_user_posts(
-        df_chunk, target_user_ids, split, include_features
-    )
+    Writes results directly to disk chunks to avoid large memory usage and transfers.
+    Returns the path to the written chunk file.
+    """
+    import gc
+    import os
+    import pandas as pd
+    from pathlib import Path
+    
+    # Create output directory if it doesn't exist
+    if output_dir:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique chunk filename
+        worker_id = os.getpid()  # Use process ID as worker identifier
+        batch_idx = batch_spec["batch_idx"]
+        chunk_filename = f"chunk_worker{worker_id}_batch{batch_idx}.csv"
+        chunk_path = os.path.join(output_dir, chunk_filename)
+    else:
+        chunk_path = None
+    
+    # Process data in smaller sub-batches to control memory
+    all_results = []
+    
+    with pq.ParquetFile(batch_spec["file_path"]) as parquet_file:
+        # Skip to the correct batch using iter_batches with offset
+        batch_size = batch_spec["batch_size"]
+        
+        # Iterate through batches until we reach our target batch
+        for current_idx, batch in enumerate(parquet_file.iter_batches(batch_size=batch_size)):
+            if current_idx == batch_spec["batch_idx"]:
+                df_batch = batch.to_pandas()
+                
+                # Process in sub-batches to control memory usage
+                for start_idx in range(0, len(df_batch), max_entries_in_memory):
+                    end_idx = min(start_idx + max_entries_in_memory, len(df_batch))
+                    df_sub_batch = df_batch.iloc[start_idx:end_idx]
+                    
+                    sub_batch_result = process_tusc_batch_for_user_posts(
+                        df_sub_batch, target_user_ids, split, include_features
+                    )
+                    
+                    if not sub_batch_result.empty:
+                        if chunk_path:
+                            # Write to disk chunk
+                            write_header = not os.path.exists(chunk_path)
+                            sub_batch_result.to_csv(chunk_path, mode='a', index=False, header=write_header)
+                        else:
+                            # Accumulate in memory (for backward compatibility)
+                            all_results.append(sub_batch_result)
+                    
+                    # Clean up sub-batch
+                    del df_sub_batch, sub_batch_result
+                    gc.collect()
+                
+                # Clean up main batch
+                del df_batch
+                gc.collect()
+                break
+            elif current_idx > batch_spec["batch_idx"]:
+                break  # We've gone past our target batch
+    
+    if chunk_path:
+        # Return the chunk file path (create empty file if no results)
+        if not os.path.exists(chunk_path):
+            Path(chunk_path).touch()
+        return chunk_path
+    else:
+        # Return combined DataFrame for backward compatibility
+        if all_results:
+            result_df = pd.concat(all_results, ignore_index=True)
+            del all_results
+            gc.collect()
+            return result_df
+        else:
+            return pd.DataFrame()
 
 
 def load_tusc_files_for_self_identification(
@@ -307,26 +452,75 @@ def load_tusc_files_for_self_identification(
     min_words: int = 5,
     max_words: int = 1000,
     chunk_size: int = 100000,
-    client=None
+    client=None,
+    output_dir: str = None,
+    max_entries_in_memory: int = 10000
 ) -> List[Dict[str, Any]]:
-    """Load and process TUSC parquet file for self-identification using Dask."""
-    chunks = create_parquet_chunks(input_file, chunk_size)
-    if not chunks:
+    """Load and process TUSC parquet file for self-identification using Dask with streaming.
+    
+    If output_dir is provided, workers write chunks directly to disk and results are
+    concatenated from disk. Otherwise, uses in-memory processing.
+    """
+    import os
+    import glob
+    import tempfile
+    
+    batch_specs = create_parquet_batch_specs(input_file, chunk_size)
+    if not batch_specs:
         raise ValueError(f"No data found in parquet file: {input_file}")
     
-    logger.info(f"Processing {len(chunks)} chunks for self-identification detection.")
+    logger.info(f"Processing {len(batch_specs)} batches for self-identification detection.")
 
-    bag = db.from_sequence(chunks, npartitions=len(chunks))
+    # Create temporary output directory if not provided
+    if output_dir is None:
+        temp_dir = tempfile.mkdtemp(prefix="tusc_chunks_")
+        output_dir = temp_dir
+        cleanup_temp = True
+    else:
+        cleanup_temp = False
+    
+    logger.info(f"Writing worker chunks to: {output_dir}")
+
+    bag = db.from_sequence(batch_specs, npartitions=len(batch_specs))
     processed_bag = bag.map(
-        lambda chunk: process_tusc_chunk_for_self_identification_worker(
-            chunk, split=split, min_words=min_words, max_words=max_words
+        lambda batch_spec: process_tusc_batch_for_self_identification_worker(
+            batch_spec, 
+            split=split, 
+            min_words=min_words, 
+            max_words=max_words,
+            output_dir=output_dir,
+            max_entries_in_memory=max_entries_in_memory
         )
-    ).flatten()
+    )
 
     with ProgressBar():
-        results: List[Dict[str, Any]] = processed_bag.compute()
+        chunk_paths = processed_bag.compute()
 
-    return results
+    # Concatenate results from disk chunks
+    logger.info(f"Concatenating {len(chunk_paths)} chunk files from disk...")
+    all_results = []
+    
+    for chunk_path in chunk_paths:
+        if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 0:
+            try:
+                chunk_df = pd.read_csv(chunk_path)
+                if not chunk_df.empty:
+                    chunk_results = chunk_df.to_dict('records')
+                    all_results.extend(chunk_results)
+                    del chunk_df, chunk_results
+            except Exception as e:
+                logger.warning(f"Failed to read chunk {chunk_path}: {e}")
+    
+    # Clean up temporary files
+    if cleanup_temp:
+        import shutil
+        try:
+            shutil.rmtree(output_dir)
+        except Exception as e:
+            logger.warning(f"Failed to clean up temp directory {output_dir}: {e}")
+    
+    logger.info(f"Total results collected: {len(all_results)}")
+    return all_results
 
 
 def load_tusc_files_for_user_posts(
@@ -335,32 +529,86 @@ def load_tusc_files_for_user_posts(
     split: str = "country", 
     include_features: bool = True,
     chunk_size: int = 100000,
-    client=None
+    client=None,
+    output_dir: str = None,
+    max_entries_in_memory: int = 10000
 ) -> List[Dict[str, Any]]:
-    """Load and process TUSC parquet file for user posts using Dask."""
-    chunks = create_parquet_chunks(input_file, chunk_size)
-    if not chunks:
+    """Load and process TUSC parquet file for user posts using Dask with streaming.
+    
+    If output_dir is provided, workers write chunks directly to disk and results are
+    concatenated from disk. Otherwise, uses in-memory processing.
+    """
+    import os
+    import tempfile
+    
+    batch_specs = create_parquet_batch_specs(input_file, chunk_size)
+    if not batch_specs:
         raise ValueError(f"No data found in parquet file: {input_file}")
         
-    logger.info(f"Processing {len(chunks)} chunks for user post collection.")
+    logger.info(f"Processing {len(batch_specs)} batches for user post collection.")
 
-    bag = db.from_sequence(chunks, npartitions=len(chunks))
+    # Create temporary output directory if not provided
+    if output_dir is None:
+        temp_dir = tempfile.mkdtemp(prefix="tusc_user_chunks_")
+        output_dir = temp_dir
+        cleanup_temp = True
+        use_disk_chunks = True
+    else:
+        cleanup_temp = False
+        use_disk_chunks = True
+
+    if use_disk_chunks:
+        logger.info(f"Writing worker chunks to: {output_dir}")
+
+    bag = db.from_sequence(batch_specs, npartitions=len(batch_specs))
     processed_bag = bag.map(
-        lambda chunk: process_tusc_chunk_for_user_posts(
-            chunk, target_user_ids=target_user_ids, split=split, include_features=include_features
+        lambda batch_spec: process_tusc_batch_for_user_posts_worker(
+            batch_spec, 
+            target_user_ids=target_user_ids, 
+            split=split, 
+            include_features=include_features,
+            output_dir=output_dir if use_disk_chunks else None,
+            max_entries_in_memory=max_entries_in_memory
         )
     )
 
     with ProgressBar():
-        results_dfs = processed_bag.compute()
+        results = processed_bag.compute()
 
-    # Combine all DataFrames
-    non_empty_dfs = [df for df in results_dfs if not df.empty]
-    if non_empty_dfs:
-        combined_df = pd.concat(non_empty_dfs, ignore_index=True)
-        return combined_df.to_dict('records')
+    if use_disk_chunks:
+        # Concatenate results from disk chunks
+        logger.info(f"Concatenating {len(results)} chunk files from disk...")
+        all_results = []
+        
+        for chunk_path in results:
+            if isinstance(chunk_path, str) and os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 0:
+                try:
+                    chunk_df = pd.read_csv(chunk_path)
+                    if not chunk_df.empty:
+                        chunk_results = chunk_df.to_dict('records')
+                        all_results.extend(chunk_results)
+                        del chunk_df, chunk_results
+                except Exception as e:
+                    logger.warning(f"Failed to read chunk {chunk_path}: {e}")
+        
+        # Clean up temporary files
+        if cleanup_temp:
+            import shutil
+            try:
+                shutil.rmtree(output_dir)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp directory {output_dir}: {e}")
+        
+        logger.info(f"Total results collected: {len(all_results)}")
+        return all_results
     else:
-        return []
+        # Combine all DataFrames (backward compatibility)
+        non_empty_dfs = [df for df in results if isinstance(df, pd.DataFrame) and not df.empty]
+        if non_empty_dfs:
+            combined_df = pd.concat(non_empty_dfs, ignore_index=True)
+            return combined_df.to_dict('records')
+        else:
+            return []
 
 
 def load_tusc_file(
@@ -377,7 +625,7 @@ def load_tusc_file(
     chunk_size: int = 100000,
     client=None
 ) -> pd.DataFrame:
-    """Load TUSC parquet file for processing.
+    """Load TUSC parquet file for processing using streaming batch approach.
     
     Args:
         input_file: Path to parquet file
@@ -390,7 +638,7 @@ def load_tusc_file(
         test_mode: Whether to use test mode with limited samples
         test_samples: Number of samples in test mode
         include_features: Whether to include linguistic features (for user_posts mode)
-        chunk_size: Chunk size for parallel processing
+        chunk_size: Batch size for streaming processing
         client: Dask client for parallel processing
         
     Returns:
@@ -401,37 +649,64 @@ def load_tusc_file(
     
     logger.info(f"Loading TUSC file: {input_file} (split: {split}, mode: {mode})")
     
-    # Use parallel processing for large datasets, single-machine for test mode
+    # Use streaming batch processing for both test and full modes
     if test_mode:
-        # Load data in test mode (small sample)
-        df = pd.read_parquet(input_file, engine='pyarrow').head(test_samples)
-        logger.info(f"Test mode: Processing {len(df)} samples")
+        # For test mode, use smaller batch size and early exit
+        test_batch_size = min(chunk_size, test_samples)
+        logger.info(f"Test mode: Processing up to {test_samples} samples with batch size {test_batch_size}")
         
         if mode == "self_identification":
             if detector is None:
                 raise ValueError("Detector required for self_identification mode")
-                
-            # Process in chunks to avoid memory issues
-            local_chunk_size = 50000
-            all_results = []
             
-            for i in range(0, len(df), local_chunk_size):
-                chunk = df.iloc[i:i+local_chunk_size]
-                chunk_results = process_tusc_batch_for_self_identification(
-                    chunk, detector, split, min_words, max_words
-                )
-                all_results.extend(chunk_results)
+            # Process with early exit for test mode
+            results = []
+            processed_rows = 0
+            
+            with pq.ParquetFile(input_file) as parquet_file:
+                for batch in parquet_file.iter_batches(batch_size=test_batch_size):
+                    df_batch = batch.to_pandas()
+                    
+                    batch_results = process_tusc_batch_for_self_identification(
+                        df_batch, detector, split, min_words, max_words
+                    )
+                    results.extend(batch_results)
+                    
+                    processed_rows += len(df_batch)
+                    if processed_rows >= test_samples:
+                        break
                 
-            logger.info(f"Found {len(all_results)} self-identification entries")
-            return pd.DataFrame(all_results)
+            logger.info(f"Found {len(results)} self-identification entries")
+            return pd.DataFrame(results)
             
         elif mode == "user_posts":
             if target_user_ids is None:
                 raise ValueError("Target user IDs required for user_posts mode")
+            
+            # Process with early exit for test mode
+            result_dfs = []
+            processed_rows = 0
+            
+            with pq.ParquetFile(input_file) as parquet_file:
+                for batch in parquet_file.iter_batches(batch_size=test_batch_size):
+                    df_batch = batch.to_pandas()
+                    
+                    batch_result = process_tusc_batch_for_user_posts(
+                        df_batch, target_user_ids, split, include_features
+                    )
+                    if not batch_result.empty:
+                        result_dfs.append(batch_result)
+                    
+                    processed_rows += len(df_batch)
+                    if processed_rows >= test_samples:
+                        break
+            
+            # Combine results
+            if result_dfs:
+                result_df = pd.concat(result_dfs, ignore_index=True)
+            else:
+                result_df = pd.DataFrame()
                 
-            result_df = process_tusc_batch_for_user_posts(
-                df, target_user_ids, split, include_features
-            )
             logger.info(f"Filtered to {len(result_df)} posts from target users")
             return result_df
             
@@ -439,20 +714,34 @@ def load_tusc_file(
             raise ValueError(f"Unknown mode: {mode}")
     
     else:
-        # Use parallel processing for large datasets
+        # Use streaming batch processing for full datasets
         if mode == "self_identification":
             if detector is None:
                 raise ValueError("Detector required for self_identification mode")
                 
-            results = load_tusc_files_for_self_identification(
-                input_file=input_file,
-                detector=detector,
-                split=split,
-                min_words=min_words,
-                max_words=max_words,
-                chunk_size=chunk_size,
-                client=client
-            )
+            # Use parallel processing if client available, otherwise streaming
+            if client is not None:
+                results = load_tusc_files_for_self_identification(
+                    input_file=input_file,
+                    detector=detector,
+                    split=split,
+                    min_words=min_words,
+                    max_words=max_words,
+                    chunk_size=chunk_size,
+                    client=client
+                )
+            else:
+                # Single-machine streaming processing
+                results = process_parquet_in_batches(
+                    input_file=input_file,
+                    batch_size=chunk_size,
+                    process_batch_fn=process_tusc_batch_for_self_identification,
+                    detector=detector,
+                    split=split,
+                    min_words=min_words,
+                    max_words=max_words
+                )
+                
             logger.info(f"Found {len(results)} self-identification entries")
             return pd.DataFrame(results)
             
@@ -460,16 +749,36 @@ def load_tusc_file(
             if target_user_ids is None:
                 raise ValueError("Target user IDs required for user_posts mode")
                 
-            results = load_tusc_files_for_user_posts(
-                input_file=input_file,
-                target_user_ids=target_user_ids,
-                split=split,
-                include_features=include_features,
-                chunk_size=chunk_size,
-                client=client
-            )
-            logger.info(f"Filtered to {len(results)} posts from target users")
-            return pd.DataFrame(results)
+            # Use parallel processing if client available, otherwise streaming
+            if client is not None:
+                results = load_tusc_files_for_user_posts(
+                    input_file=input_file,
+                    target_user_ids=target_user_ids,
+                    split=split,
+                    include_features=include_features,
+                    chunk_size=chunk_size,
+                    client=client
+                )
+                result_df = pd.DataFrame(results)
+            else:
+                # Single-machine streaming processing
+                result_dfs = process_parquet_in_batches(
+                    input_file=input_file,
+                    batch_size=chunk_size,
+                    process_batch_fn=process_tusc_batch_for_user_posts,
+                    target_user_ids=target_user_ids,
+                    split=split,
+                    include_features=include_features
+                )
+                
+                # Combine DataFrames
+                if result_dfs and any(not df.empty for df in result_dfs):
+                    result_df = pd.concat([df for df in result_dfs if not df.empty], ignore_index=True)
+                else:
+                    result_df = pd.DataFrame()
+                
+            logger.info(f"Filtered to {len(result_df)} posts from target users")
+            return result_df
             
         else:
             raise ValueError(f"Unknown mode: {mode}")

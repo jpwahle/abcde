@@ -4,6 +4,8 @@ Common I/O utilities for reading and writing data in various formats.
 import csv
 import logging
 import os
+import tempfile
+import pandas as pd
 from pathlib import Path
 from typing import Dict, Any, List
 from tqdm import tqdm
@@ -111,3 +113,93 @@ def auto_detect_delimiter(file_path: str) -> str:
                     return ','
         except Exception:
             return ','  # Default to comma
+
+
+def concatenate_chunk_files(
+    chunk_paths: List[str], 
+    output_file: str,
+    cleanup_chunks: bool = True,
+    output_format: str = "csv"
+) -> int:
+    """Concatenate multiple chunk files into a single output file.
+    
+    Args:
+        chunk_paths: List of paths to chunk files
+        output_file: Path for the final concatenated output
+        cleanup_chunks: Whether to delete chunk files after concatenation
+        output_format: Output format ("csv" or "tsv")
+        
+    Returns:
+        Total number of records written
+    """
+    import shutil
+    
+    ensure_output_directory(output_file)
+    
+    separator = '\t' if output_format == "tsv" else ','
+    total_records = 0
+    header_written = False
+    
+    logger.info(f"Concatenating {len(chunk_paths)} chunk files into {output_file}")
+    
+    with open(output_file, 'w', newline='', encoding='utf-8') as outfile:
+        writer = csv.writer(outfile, delimiter=separator)
+        
+        for chunk_path in chunk_paths:
+            if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 0:
+                try:
+                    with open(chunk_path, 'r', encoding='utf-8') as infile:
+                        reader = csv.reader(infile)
+                        header = next(reader, None)
+                        
+                        # Write header only once
+                        if header and not header_written:
+                            writer.writerow(header)
+                            header_written = True
+                        
+                        # Write data rows
+                        for row in reader:
+                            writer.writerow(row)
+                            total_records += 1
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to read chunk {chunk_path}: {e}")
+                    continue
+                    
+                # Clean up chunk file if requested
+                if cleanup_chunks:
+                    try:
+                        os.remove(chunk_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to remove chunk {chunk_path}: {e}")
+    
+    logger.info(f"Concatenated {total_records} records from {len(chunk_paths)} chunks")
+    return total_records
+
+
+def create_temp_chunk_dir(prefix: str = "chunks_") -> str:
+    """Create a temporary directory for chunk files.
+    
+    Args:
+        prefix: Prefix for the temporary directory name
+        
+    Returns:
+        Path to the created temporary directory
+    """
+    temp_dir = tempfile.mkdtemp(prefix=prefix)
+    logger.info(f"Created temporary chunk directory: {temp_dir}")
+    return temp_dir
+
+
+def cleanup_temp_dir(temp_dir: str):
+    """Clean up a temporary directory and all its contents.
+    
+    Args:
+        temp_dir: Path to the temporary directory to clean up
+    """
+    import shutil
+    try:
+        shutil.rmtree(temp_dir)
+        logger.info(f"Cleaned up temporary directory: {temp_dir}")
+    except Exception as e:
+        logger.warning(f"Failed to clean up temp directory {temp_dir}: {e}")
