@@ -226,9 +226,16 @@ def detect_self_identification_in_entry(entry: Dict[str, Any], detector: "SelfId
     The function is intentionally generic: only relies on *title* and *body* keys
     that are expected to exist across multiple data sources.
     """
+    from helpers import clean_text_newlines
+    
     title = entry.get("title", "") or ""
     body = entry.get("selftext", "") or ""
-    combined = f"{title}\n{body}"
+    
+    # Clean both title and body to remove problematic newlines
+    title = clean_text_newlines(title)
+    body = clean_text_newlines(body)
+    
+    combined = f"{title} {body}".strip()
     return detector.detect(combined)
 
 

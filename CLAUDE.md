@@ -14,7 +14,7 @@ The pipeline consists of two main stages with data-source specific entry points:
 1. **Self-identification detection** (`identify_self_users_reddit.py`) - Scans Reddit JSONL dumps for users who mention demographic traits like age
 2. **Feature extraction** (`collect_user_posts_reddit.py`) - Collects all posts by identified users and enriches them with linguistic features
 
-### TUSC Processing (Single-machine)
+### TUSC Processing (Parallel-capable)
 1. **Self-identification detection** (`identify_self_users_tusc.py`) - Scans TUSC parquet files for users who mention demographic traits like age  
 2. **Feature extraction** (`collect_user_posts_tusc.py`) - Collects all posts by identified users and enriches them with linguistic features
 
@@ -27,13 +27,8 @@ The pipeline consists of two main stages with data-source specific entry points:
   - `data_loader.py` - Reddit JSONL file processing with Dask parallelization
   - `user_loader.py` - Reddit user data loading utilities
 - `tusc/` - TUSC-specific data loading and user management
-  - `data_loader.py` - TUSC parquet file processing for single-machine operation
+  - `data_loader.py` - TUSC parquet file processing with chunked parallel support
   - `user_loader.py` - TUSC user data loading utilities
-
-### Legacy Modules (still used)
-- `self_identification.py` - Regex-based detector for demographic self-identification (data-source agnostic)
-- `compute_features.py` - NRC lexicon-based feature computation with safe fallbacks for missing data files
-- `helpers.py` - Shared utilities for file processing, filtering, and media handling
 
 ## Dependencies and Environment
 
@@ -68,18 +63,32 @@ sbatch run_reddit_pipeline.sh
 
 ### TUSC Processing
 
-#### Local execution:
+#### Local execution (single-machine, test mode):
 ```bash
 # Stage 1: Find self-identified users
-uv run python identify_self_users_tusc.py --input_file /path/to/tusc.parquet --output_csv outputs/tusc_self_users.csv
+uv run python identify_self_users_tusc.py --input_file /path/to/tusc.parquet --output_csv outputs/tusc_self_users.csv --test_mode
 
 # Stage 2: Collect posts and compute features
-uv run python collect_user_posts_tusc.py --input_file /path/to/tusc.parquet --self_identified_csv outputs/tusc_self_users.csv --output_csv outputs/tusc_user_posts.csv
+uv run python collect_user_posts_tusc.py --input_file /path/to/tusc.parquet --self_identified_csv outputs/tusc_self_users.csv --output_csv outputs/tusc_user_posts.csv --test_mode
+```
+
+#### SLURM cluster execution (full-scale parallel):
+```bash
+# Stage 1: Find self-identified users (parallel processing)
+uv run python identify_self_users_tusc.py --input_file /path/to/tusc.parquet --output_csv outputs/tusc_self_users.csv --n_workers 128 --memory_per_worker 4GB --use_slurm
+
+# Stage 2: Collect posts and compute features (parallel processing)
+uv run python collect_user_posts_tusc.py --input_file /path/to/tusc.parquet --self_identified_csv outputs/tusc_self_users.csv --output_csv outputs/tusc_user_posts.csv --n_workers 128 --memory_per_worker 4GB --use_slurm
 ```
 
 #### Full TUSC pipeline (SLURM):
 ```bash
 sbatch run_tusc_pipeline.sh
+```
+
+#### Test TUSC pipeline (SLURM, small sample):
+```bash
+sbatch run_tusc_pipeline_test.sh
 ```
 
 ## Data Requirements
@@ -100,9 +109,9 @@ sbatch run_tusc_pipeline.sh
 
 ## Key Design Patterns
 
-- **Modular architecture**: Clear separation between Reddit (large-scale parallel) and TUSC (single-machine) processing
+- **Modular architecture**: Clear separation between Reddit and TUSC data sources with parallel processing capabilities for both
 - **Shared core logic**: Common functions for self-identification detection and feature computation
 - **Graceful degradation**: Feature computation falls back to empty dicts if lexicon files missing
 - **Dual identification**: Uses both stable user IDs and usernames for user matching across dataset inconsistencies
 - **Configurable processing**: Different scaling strategies for different data sources
-- **Distributed processing**: Dask-based parallelization with SLURM support for Reddit; simple pandas processing for TUSC
+- **Distributed processing**: Dask-based parallelization with SLURM support for both Reddit and TUSC data sources

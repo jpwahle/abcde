@@ -23,7 +23,33 @@ __all__ = [
     "download_media",
     "extract_columns",
     "process_entry",
+    "clean_text_newlines",
 ]
+
+# --------------- #
+# TEXT CLEANING
+# --------------- #
+
+def clean_text_newlines(text: str) -> str:
+    """Clean text by removing newlines and ensuring proper spacing.
+    
+    Replaces newlines with spaces, but only adds a space if there isn't already
+    whitespace at the boundary to prevent creating double spaces.
+    """
+    if not text:
+        return text
+    
+    import re
+    # Replace newlines with single space, handling cases where text would run together
+    # This regex matches newlines and replaces them with space, but only if there isn't
+    # already whitespace before or after the newline
+    text = re.sub(r'(?<!\s)\n(?!\s)', ' ', text)
+    # Clean up any remaining standalone newlines
+    text = re.sub(r'\n+', ' ', text)
+    # Normalize multiple spaces to single space
+    text = re.sub(r' +', ' ', text)
+    return text.strip()
+
 
 # --------------- #
 # FILE HANDLING & SAMPLING
@@ -214,7 +240,7 @@ def extract_columns(entry: Dict[str, Any], local_media_path: Optional[str]) -> D
         "id": entry.get("id"),
         "subreddit": entry.get("subreddit"),
         "title": entry.get("title", ""),
-        "selftext": entry.get("selftext", ""),
+        "selftext": clean_text_newlines(entry.get("selftext", "")),
         "created_utc": entry.get("created_utc"),
         "score": entry.get("score"),
         "num_comments": entry.get("num_comments"),

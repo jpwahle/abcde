@@ -7,7 +7,8 @@ import logging
 import pandas as pd
 
 from self_identification import SelfIdentificationDetector
-from core.io_utils import ensure_output_directory
+from core.cluster import setup_dask_cluster, cleanup_cluster
+from core.io_utils import ensure_output_directory, write_results_to_csv
 from tusc.data_loader import load_tusc_file, determine_tusc_split
 
 logger = logging.getLogger("identify_self_users_tusc")
@@ -28,6 +29,10 @@ def main():
     parser.add_argument("--test_mode", action="store_true", help="Test mode with limited samples")
     parser.add_argument("--test_samples", type=int, default=10000, help="Number of samples in test mode")
     parser.add_argument("--output_tsv", action="store_true", help="Output TSV instead of CSV")
+    parser.add_argument("--n_workers", type=int, default=32, help="Number of Dask workers")
+    parser.add_argument("--memory_per_worker", type=str, default="4GB", help="Memory per worker")
+    parser.add_argument("--use_slurm", action="store_true", help="Use SLURM cluster for Dask workers")
+    parser.add_argument("--chunk_size", type=int, default=100000, help="Chunk size for parallel processing")
 
     args = parser.parse_args()
     
@@ -43,48 +48,48 @@ def main():
     # Initialize detector
     detector = SelfIdentificationDetector()
     
-    # Process TUSC file
-    results_df = load_tusc_file(
-        input_file=args.input_file,
-        detector=detector,
-        split=args.split,
-        min_words=args.min_words,
-        max_words=args.max_words,
-        mode="self_identification",
-        test_mode=args.test_mode,
-        test_samples=args.test_samples,
-        include_features=False
-    )
+    # Setup Dask cluster (only for non-test mode)
+    client = None
+    if not args.test_mode:
+        client = setup_dask_cluster(
+            n_workers=args.n_workers,
+            memory_per_worker=args.memory_per_worker,
+            use_slurm=args.use_slurm
+        )
     
-    logger.info(f"Detected {len(results_df)} self-identification posts. Writing to {args.output_csv}")
+    try:
+        # Process TUSC file
+        results_df = load_tusc_file(
+            input_file=args.input_file,
+            detector=detector,
+            split=args.split,
+            min_words=args.min_words,
+            max_words=args.max_words,
+            mode="self_identification",
+            test_mode=args.test_mode,
+            test_samples=args.test_samples,
+            include_features=False,
+            chunk_size=args.chunk_size,
+            client=client
+        )
     
-    # Write results
-    separator = '\t' if args.output_tsv else ','
-    file_extension = 'tsv' if args.output_tsv else 'csv'
-    output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
-    
-    if len(results_df) > 0:
-        # Convert DataFrame results to the format expected by CSV writer
-        from core.data_processing import flatten_result_to_csv_row, get_csv_fieldnames
+        logger.info(f"Detected {len(results_df)} self-identification posts. Writing to {args.output_csv}")
         
-        csv_rows = [flatten_result_to_csv_row(row, "tusc") for _, row in results_df.iterrows()]
-        fieldnames = get_csv_fieldnames("tusc", args.split)
+        # Convert DataFrame to list of dictionaries for write_results_to_csv
+        results = results_df.to_dict('records') if not results_df.empty else []
         
-        import csv
-        with open(output_file, "w", encoding="utf-8", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
-            writer.writeheader()
-            for row in csv_rows:
-                writer.writerow(row)
-    else:
-        logger.warning("No results found. Creating empty CSV file.")
-        from core.data_processing import get_csv_fieldnames
-        fieldnames = get_csv_fieldnames("tusc", args.split)
+        # Write results using shared utility
+        write_results_to_csv(
+            results=results,
+            output_csv=args.output_csv,
+            output_tsv=args.output_tsv,
+            data_source="tusc",
+            split=args.split
+        )
         
-        import csv
-        with open(output_file, "w", encoding="utf-8", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=separator)
-            writer.writeheader()
+    finally:
+        if client is not None:
+            cleanup_cluster(client, args.use_slurm)
 
 
 if __name__ == "__main__":

@@ -21,10 +21,16 @@
 # Default parameters (can be overridden via --export)
 INPUT_FILE=${INPUT_FILE:-"/beegfs/wahle/datasets/tusc/tusc-country.parquet"}
 OUTPUT_DIR=${OUTPUT_DIR:-"/beegfs/wahle/github/abcde/outputs_tusc"}
+N_WORKERS=${N_WORKERS:-128}
+MEMORY_PER_WORKER=${MEMORY_PER_WORKER:-4GB}
+CHUNK_SIZE=${CHUNK_SIZE:-100000}
 
 echo "Starting TUSC processing pipeline (Two-Stage Approach)"
 echo "Input file: $INPUT_FILE"
-echo "Output directory: $OUTPUT_DIR"
+echo "Output directory: $OUTPUT_DIR" 
+echo "Workers: $N_WORKERS"
+echo "Memory per worker: $MEMORY_PER_WORKER"
+echo "Chunk size: $CHUNK_SIZE"
 echo "----------------------------------------"
 
 # Create output and log directories
@@ -46,6 +52,10 @@ STAGE1_ARGS=(
     --input_file "$INPUT_FILE"
     --output_csv "$SELF_ID_CSV"
     --output_tsv
+    --n_workers "$N_WORKERS"
+    --memory_per_worker "$MEMORY_PER_WORKER"
+    --chunk_size "$CHUNK_SIZE"
+    --use_slurm
 )
 
 # Stage 1: Find self-identified users
@@ -61,6 +71,10 @@ STAGE2_ARGS=(
     --self_identified_csv "$SELF_ID_CSV"
     --output_csv "$FINAL_OUTPUT_CSV"
     --output_tsv
+    --n_workers "$N_WORKERS"
+    --memory_per_worker "$MEMORY_PER_WORKER"
+    --chunk_size "$CHUNK_SIZE"
+    --use_slurm
 )
 
 # Stage 2: Collect user posts and compute features

@@ -1,13 +1,14 @@
 """
 TUSC-specific user post collection pipeline.
 Collects all posts by self-identified users and computes linguistic features.
-Designed for smaller datasets that can be processed on a single machine.
+Supports both single-machine and distributed parallel processing.
 """
 import argparse
 import logging
 import csv
 import pandas as pd
 
+from core.cluster import setup_dask_cluster, cleanup_cluster
 from core.io_utils import ensure_output_directory
 from tusc.data_loader import load_tusc_file, determine_tusc_split
 from tusc.user_loader import load_tusc_user_ids
@@ -97,6 +98,10 @@ def main():
     parser.add_argument("--test_mode", action="store_true", help="Test mode with limited samples")
     parser.add_argument("--test_samples", type=int, default=10000, help="Number of samples in test mode")
     parser.add_argument("--output_tsv", action="store_true", help="Output TSV instead of CSV")
+    parser.add_argument("--n_workers", type=int, default=32, help="Number of Dask workers")
+    parser.add_argument("--memory_per_worker", type=str, default="4GB", help="Memory per worker")
+    parser.add_argument("--use_slurm", action="store_true", help="Use SLURM cluster for Dask workers")
+    parser.add_argument("--chunk_size", type=int, default=100000, help="Chunk size for parallel processing")
     
     args = parser.parse_args()
     
@@ -119,16 +124,28 @@ def main():
     user_details = load_tusc_user_details(args.self_identified_csv)
     logger.info(f"Loaded user details for {len(user_details)} users.")
     
-    # Process TUSC file
-    result_df = load_tusc_file(
-        input_file=args.input_file,
-        target_user_ids=target_user_ids,
-        split=args.split,
-        mode="user_posts",
-        test_mode=args.test_mode,
-        test_samples=args.test_samples,
-        include_features=True
-    )
+    # Setup Dask cluster (only for non-test mode)
+    client = None
+    if not args.test_mode:
+        client = setup_dask_cluster(
+            n_workers=args.n_workers,
+            memory_per_worker=args.memory_per_worker,
+            use_slurm=args.use_slurm
+        )
+    
+    try:
+        # Process TUSC file
+        result_df = load_tusc_file(
+            input_file=args.input_file,
+            target_user_ids=target_user_ids,
+            split=args.split,
+            mode="user_posts",
+            test_mode=args.test_mode,
+            test_samples=args.test_samples,
+            include_features=True,
+            chunk_size=args.chunk_size,
+            client=client
+        )
     
     logger.info(f"Processed {len(result_df)} rows from target users")
     
@@ -156,14 +173,18 @@ def main():
             result_df.at[idx, "AuthorBirthYear"] = details.get('birth_year', "")
             result_df.at[idx, "AuthorRawAges"] = details.get('raw_ages', "")
     
-    # Write output
-    separator = '\t' if args.output_tsv else ','
-    file_extension = 'tsv' if args.output_tsv else 'csv'
-    output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
-    
-    result_df.to_csv(output_file, index=False, sep=separator)
-    
-    logger.info(f"Output written to {output_file}")
+        # Write output
+        separator = '\t' if args.output_tsv else ','
+        file_extension = 'tsv' if args.output_tsv else 'csv'
+        output_file = args.output_csv.replace('.csv', f'.{file_extension}') if args.output_tsv else args.output_csv
+        
+        result_df.to_csv(output_file, index=False, sep=separator)
+        
+        logger.info(f"Output written to {output_file}")
+        
+    finally:
+        if client is not None:
+            cleanup_cluster(client, args.use_slurm)
 
 
 if __name__ == "__main__":
