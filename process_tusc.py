@@ -33,7 +33,7 @@ def load_self_identified_users(csv_path: str) -> set:
     user_ids = set()
 
     # Handle different possible column names
-    for col in ['Author', 'userID']:
+    for col in ['Author', 'UserID', 'userID']:
         if col in df.columns:
             user_ids.update(df[col].dropna().astype(str).tolist())
     # Normalize IDs as stripped, non-empty strings
@@ -84,7 +84,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         
         # Extract user IDs for stage 2 (normalized to strings)
         user_ids = {
-            str(r.get("Author") or r.get("userID") or r.get("userName") or "").strip()
+            str(r.get("Author") or r.get("UserID") or r.get("userID") or r.get("userName") or "").strip()
             for r in self_results
         }
 
@@ -113,7 +113,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
             for _, row in df.iterrows():
                 entry = row.to_dict()
                 # Only include posts by self-identified users
-                author_val = entry.get("userID") or entry.get("Author")
+                author_val = entry.get("UserID") or entry.get("userID") or entry.get("Author")
                 author = str(author_val).strip() if author_val is not None else ""
                 if author not in user_ids:
                     continue

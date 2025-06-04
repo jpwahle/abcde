@@ -442,7 +442,7 @@ def flatten_result_to_csv_row(
     row: Dict[str, Any] = {}
     # Author column
     if data_source == "tusc":
-        row["Author"] = result.get("userID", "") or ""
+        row["Author"] = result.get("UserID", "") or result.get("userID", "") or ""
     else:
         row["Author"] = result.get("author", "") or ""
 
