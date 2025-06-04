@@ -19,10 +19,100 @@ from helpers import (
     ensure_output_directory,
 )
 
+# Global detector for stage1 self-identification detection
+_detector = SelfIdentificationDetector()
+
+# Global set of user IDs for stage2 filtering
+_user_ids = set()
+
+
+def process_chunk_stage1(task):
+    path, lines = task
+    results_local: list[dict] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+            continue
+        matches = detect_self_identification_in_entry(entry, _detector)
+        if not matches:
+            continue
+        author = entry.get("author")
+        if not author or author in ("[deleted]", "AutoModerator", "Bot"):
+            continue
+        results_local.append(
+            {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
+        )
+    return results_local
+
+
+def process_file_stage1(file_path: str) -> list[dict]:
+    results_local: list[dict] = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+                continue
+            matches = detect_self_identification_in_entry(entry, _detector)
+            if not matches:
+                continue
+            author = entry.get("author")
+            if not author or author in ("[deleted]", "AutoModerator", "Bot"):
+                continue
+            results_local.append(
+                {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
+            )
+    return results_local
+
+
+def process_chunk_stage2(task):
+    path, lines = task
+    results_local: list[dict] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        author = entry.get("author")
+        if author not in _user_ids:
+            continue
+        if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+            continue
+        post = extract_columns(entry, None)
+        features = apply_linguistic_features(post.get("selftext", ""))
+        post.update(features)
+        results_local.append(post)
+    return results_local
+
+
+def process_file_stage2(file_path: str) -> list[dict]:
+    results_local: list[dict] = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            author = entry.get("author")
+            if author not in _user_ids:
+                continue
+            if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+                continue
+            post = extract_columns(entry, None)
+            features = compute_all_features(post.get("selftext", ""))
+            post.update(features)
+            results_local.append(post)
+    return results_local
+
+
 
 def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0) -> None:
     ensure_output_directory(os.path.join(output_dir, "_"))
-    detector = SelfIdentificationDetector()
 
     # Stage 1: Detect self-identified users (by file or by chunk)
     files = get_all_jsonl_files(input_dir)
@@ -32,26 +122,6 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0)
             for lines in iter(lambda: list(itertools.islice(fh, chunk_size)), []):
                 yield lines
 
-    def process_chunk_stage1(task):
-        path, lines = task
-        results_local: list[dict] = []
-        for line in lines:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not filter_entry(entry, split="text", min_words=5, max_words=1000):
-                continue
-            matches = detect_self_identification_in_entry(entry, detector)
-            if not matches:
-                continue
-            author = entry.get("author")
-            if not author or author in ("[deleted]", "AutoModerator", "Bot"):
-                continue
-            results_local.append(
-                {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
-            )
-        return results_local
 
     if chunk_size and chunk_size > 0:
         # split files into line-based chunks to limit memory per task
@@ -66,26 +136,6 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0)
                 self_results.extend(process_chunk_stage1(task))
     else:
         # process entire files
-        def process_file_stage1(file_path: str) -> list[dict]:
-            results_local: list[dict] = []
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if not filter_entry(entry, split="text", min_words=5, max_words=1000):
-                        continue
-                    matches = detect_self_identification_in_entry(entry, detector)
-                    if not matches:
-                        continue
-                    author = entry.get("author")
-                    if not author or author in ("[deleted]", "AutoModerator", "Bot"):
-                        continue
-                    results_local.append(
-                        {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
-                    )
-            return results_local
 
         if workers > 1:
             with multiprocessing.Pool(workers) as pool:
@@ -105,27 +155,10 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0)
     )
 
     # Stage 2: Collect posts by self-identified users and compute features
-    user_ids = {r["author"] for r in self_results}
+    global _user_ids
+    _user_ids = {r["author"] for r in self_results}
     files = get_all_jsonl_files(input_dir)
 
-    def process_chunk_stage2(task):
-        path, lines = task
-        results_local: list[dict] = []
-        for line in lines:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            author = entry.get("author")
-            if author not in user_ids:
-                continue
-            if not filter_entry(entry, split="text", min_words=5, max_words=1000):
-                continue
-            post = extract_columns(entry, None)
-            features = apply_linguistic_features(post.get("selftext", ""))
-            post.update(features)
-            results_local.append(post)
-        return results_local
 
     if chunk_size and chunk_size > 0:
         tasks2 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
@@ -138,24 +171,6 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0)
             for task in tasks2:
                 posts_results.extend(process_chunk_stage2(task))
     else:
-        def process_file_stage2(file_path: str) -> list[dict]:
-            results_local: list[dict] = []
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    author = entry.get("author")
-                    if author not in user_ids:
-                        continue
-                    if not filter_entry(entry, split="text", min_words=5, max_words=1000):
-                        continue
-                    post = extract_columns(entry, None)
-                    features = compute_all_features(post.get("selftext", ""))
-                    post.update(features)
-                    results_local.append(post)
-            return results_local
 
         if workers > 1:
             with multiprocessing.Pool(workers) as pool:
