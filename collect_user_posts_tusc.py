@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Set
 import csv
+import functools
 
 # Add Dask imports
 import dask.dataframe as dd
@@ -118,6 +119,11 @@ def process_tusc_user_posts(
         logger.warning("No target user IDs found. Exiting.")
         return
 
+    # Load body parts data once (before cluster creation to avoid repeated loading in workers)
+    from compute_features import load_body_parts
+    body_parts = load_body_parts('data/bodywords-full.txt')
+    logger.info(f"Loaded {len(body_parts)} body parts for feature extraction")
+
     # Configure Dask cluster
     if use_slurm:
         # Ensure log directory exists for worker logs
@@ -172,21 +178,19 @@ def process_tusc_user_posts(
             logger.info(f"Setting number of workers to {n_workers}")
 
         # Apply filtering and processing to each partition
-        def process_partition(df_partition):
+        def process_partition(df_partition, target_users, data_split, body_parts_data):
             """Process a single partition: filter by users and compute features."""
             if df_partition.empty:
                 return df_partition
                 
             # First filter to only include target users
-            filtered_df = filter_tusc_batch_by_users(df_partition, target_user_ids, split)
+            filtered_df = filter_tusc_batch_by_users(df_partition, target_users, data_split)
             
             if filtered_df.empty:
                 return filtered_df
             
             # Then compute linguistic features using existing function
-            from compute_features import load_body_parts
-            body_parts = load_body_parts('data/bodywords-full.txt')
-            processed_df = process_tusc_batch(filtered_df, body_parts, split)
+            processed_df = process_tusc_batch(filtered_df, body_parts_data, data_split)
             
             return processed_df
 
@@ -304,7 +308,14 @@ def process_tusc_user_posts(
             # Create meta dataframe
             meta_df = pd.DataFrame({col: pd.Series([], dtype=dtype) for col, dtype in meta_dict.items()})
             
-            processed_ddf = ddf.map_partitions(process_partition, meta=meta_df)
+            # Pass data as additional arguments to map_partitions to avoid loading in each worker
+            processed_ddf = ddf.map_partitions(
+                process_partition,
+                target_user_ids,  # target_users parameter
+                split,            # data_split parameter  
+                body_parts,       # body_parts_data parameter
+                meta=meta_df
+            )
             
             # Compute the results and convert to pandas for output
             result_df = processed_ddf.compute()
