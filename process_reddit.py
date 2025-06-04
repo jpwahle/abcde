@@ -14,7 +14,7 @@ from helpers import (
     extract_columns,
     SelfIdentificationDetector,
     detect_self_identification_in_entry,
-    compute_all_features,
+    apply_linguistic_features,
     write_results_to_csv,
     ensure_output_directory,
 )
@@ -122,7 +122,7 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0)
             if not filter_entry(entry, split="text", min_words=5, max_words=1000):
                 continue
             post = extract_columns(entry, None)
-            features = compute_all_features(post.get("selftext", ""))
+            features = apply_linguistic_features(post.get("selftext", ""))
             post.update(features)
             results_local.append(post)
         return results_local

@@ -133,6 +133,40 @@ def detect_self_identification_in_entry(
     combined = f"{title} {body}".strip()
     return detector.detect(combined)
 
+def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector: "SelfIdentificationDetector") -> Dict[str, Any]:
+    """Detect self identification with age resolution for multiple age extractions.
+    
+    Parameters
+    ----------
+    entry : Dict[str, Any]
+        Reddit-style entry with title and body
+    detector : SelfIdentificationDetector
+        Detector instance
+        
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary with original matches plus resolved_age info:
+        {
+            "age": ["25", "1998"],  # original extractions
+            "resolved_age": {"age": 27, "confidence": 0.9, "raw_matches": ["25", "1998"]}
+        }
+    """
+    matches = detect_self_identification_in_entry(entry, detector)
+    
+    # If age matches found, resolve them
+    if "age" in matches:
+        age_resolution = detector.resolve_multiple_ages(matches["age"])
+        if age_resolution is not None:
+            resolved_age, confidence = age_resolution
+            matches["resolved_age"] = {
+                "age": resolved_age,
+                "confidence": confidence,
+                "raw_matches": matches["age"].copy()
+            }
+    
+    return matches 
+
 
 # -------------------- #
 # Lexicon Loading and Feature Computation
@@ -342,15 +376,9 @@ def compute_vad_and_emotions(
     }
 
 def load_body_parts(filepath: str) -> List[str]:
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return [l.strip().lower() for l in f if l.strip()]
-    except FileNotFoundError:
-        return [
-            "head","face","eye","nose","mouth","ear","neck","shoulder",
-            "arm","hand","finger","chest","back","stomach","leg","foot",
-            "toe","heart","brain","body",
-        ]
+    with open(filepath, "r", encoding="utf-8") as f:
+        return [l.strip().lower() for l in f if l.strip()]
+
 
 def compute_prefixed_body_part_mentions(text: str, body_parts: List[str]) -> Dict[str, Any]:
     if not isinstance(text, str):

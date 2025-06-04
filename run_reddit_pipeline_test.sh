@@ -4,7 +4,7 @@
 #SBATCH --error=logs/reddit_pipeline_test.%j.err
 #SBATCH --time=00:30:00
 #SBATCH --mem=8G
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 
 set -euxo pipefail
 
@@ -14,7 +14,7 @@ OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit_test
 # number of lines per chunk for large JSONL files (0 = process whole file at once)
 CHUNK_SIZE=${CHUNK_SIZE:-100000}
 
-srun python process_reddit.py \
+uv run python process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --workers "$SLURM_CPUS_PER_TASK" \

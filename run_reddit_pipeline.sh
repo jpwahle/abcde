@@ -3,8 +3,8 @@
 #SBATCH --output=logs/reddit_pipeline.%j.out
 #SBATCH --error=logs/reddit_pipeline.%j.err
 #SBATCH --time=04:00:00
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=128
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=256
 
 set -euxo pipefail
 
@@ -14,7 +14,7 @@ OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit
 CHUNK_SIZE=${CHUNK_SIZE:-100000}
 
 
-srun python process_reddit.py \
+uv run python process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --workers "$SLURM_CPUS_PER_TASK" \

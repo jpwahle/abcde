@@ -7,6 +7,7 @@ import argparse
 
 import pyarrow.parquet as pq
 import pandas as pd
+from tqdm import tqdm
 
 from helpers import (
     detect_self_identification_in_tusc_entry,
@@ -27,10 +28,17 @@ def main(input_file: str, output_dir: str, chunk_size: int) -> None:
     split = determine_split(input_file)
     detector = SelfIdentificationDetector()
 
+    print("Stage 1: Detect self-identified users")
+
     # Stage 1: Detect self-identified users
     self_results: list[dict] = []
     parquet_file = pq.ParquetFile(input_file)
-    for batch in parquet_file.iter_batches(batch_size=chunk_size):
+
+    # Calculate total batches for progress bar
+    total_rows = parquet_file.metadata.num_rows
+    total_batches = (total_rows // chunk_size) + 1
+
+    for batch in tqdm(parquet_file.iter_batches(batch_size=chunk_size), total=total_batches):
         df = batch.to_pandas()
         for _, row in df.iterrows():
             entry = row.to_dict()
@@ -48,10 +56,19 @@ def main(input_file: str, output_dir: str, chunk_size: int) -> None:
         split=split,
     )
 
+    print(f"Found {len(self_results)} self-identified users")
+
+    print("Stage 2: Collect posts from self-identified users and compute features")
+
     # Stage 2: Collect posts from self-identified users and compute features
     user_ids = {r.get("Author") or r.get("userID") for r in self_results}
     posts_results: list[dict] = []
-    for batch in pq.ParquetFile(input_file).iter_batches(batch_size=chunk_size):
+
+    parquet_file = pq.ParquetFile(input_file)
+    total_rows = parquet_file.metadata.num_rows
+    total_batches = (total_rows // chunk_size) + 1
+    
+    for batch in tqdm(parquet_file.iter_batches(batch_size=chunk_size), total=total_batches):
         df = batch.to_pandas()
         for _, row in df.iterrows():
             entry = row.to_dict()
@@ -72,6 +89,8 @@ def main(input_file: str, output_dir: str, chunk_size: int) -> None:
         data_source="tusc",
         split=split,
     )
+
+    print(f"Found {len(posts_results)} posts from self-identified users")
 
 
 if __name__ == "__main__":
