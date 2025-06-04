@@ -23,11 +23,8 @@ from datetime import datetime
 
 # Global detector for stage1 self-identification detection
 _detector = SelfIdentificationDetector()
-
 _user_ids = set()
-# Mapping from author to birthyear for stage2 age computation
-_user_birthyear_map: dict[str, int] = {}
-
+_user_birthyear_map = {}
 
 def load_self_identified_users(csv_path: str) -> set:
     """Load user IDs from existing self-identified users CSV file."""
@@ -92,6 +89,7 @@ def process_file_stage1(file_path: str) -> list[dict]:
 
 def process_chunk_stage2(task):
     path, lines = task
+    global _user_birthyear_map
     results_local: list[dict] = []
     for line in lines:
         try:
@@ -110,18 +108,16 @@ def process_chunk_stage2(task):
         birthyear = _user_birthyear_map.get(author)
         if birthyear is not None:
             ts = post.get("created_utc")
-            try:
-                post_year = datetime.utcfromtimestamp(int(ts)).year
-                post["DMGAgeAtPost"] = post_year - int(birthyear)
-            except Exception:
-                post["DMGAgeAtPost"] = ""
+            post_year = datetime.utcfromtimestamp(int(ts)).year
+            post["DMGAgeAtPost"] = post_year - int(birthyear)
         else:
             post["DMGAgeAtPost"] = ""
         results_local.append(post)
     return results_local
 
 
-def process_file_stage2(file_path: str) -> list[dict]:
+def process_file_stage2(file_path) -> list[dict]:
+    global _user_birthyear_map
     results_local: list[dict] = []
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -205,7 +201,6 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
         print("Stage 2: Collect posts from self-identified users and compute features")
         
         global _user_ids
-        
         # If we didn't run stage 1, or to load birthyear mapping, load user IDs and birthyear info
         self_users_file = os.path.join(output_dir, "reddit_users.tsv")
         if stages == "2":
@@ -213,18 +208,22 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
             print(f"Loaded {len(_user_ids)} self-identified users from {self_users_file}")
         else:
             _user_ids = {r["author"] for r in self_results}
+
         # Load DMG birthyear mapping for age-at-post computation
-        try:
-            df_users = pd.read_csv(self_users_file, sep='\t')
-            _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
-        except Exception:
-            _user_birthyear_map = {}
+        df_users = pd.read_csv(self_users_file, sep='\t')
+        
+        global _user_birthyear_map
+        _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
+
+        print(f"df_users: {df_users}")
+        print(f"df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict(): {df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()}")
+        
 
         if chunk_size and chunk_size > 0:
             tasks2 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
             if workers > 1:
                 with multiprocessing.Pool(workers) as pool:
-                    parts = pool.map(process_chunk_stage2, tasks2)
+                    parts = pool.map(process_chunk_stage2, (tasks2))
                 posts_results = [r for part in parts for r in part]
             else:
                 posts_results: list[dict] = []

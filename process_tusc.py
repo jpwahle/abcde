@@ -97,12 +97,13 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         if stages == "2":
             user_ids = load_self_identified_users(self_users_file)
             print(f"Loaded {len(user_ids)} self-identified users from {self_users_file}")
+        
         # Load birthyear mapping for age calculation
-        try:
-            df_users = pd.read_csv(self_users_file, sep='\t')
-            _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
-        except Exception:
-            _user_birthyear_map = {}
+        df_users = pd.read_csv(self_users_file, sep='\t')
+        _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
+        
+        print(f"_user_birthyear_map: {_user_birthyear_map}")
+
         posts_results: list[dict] = []
 
         parquet_file = pq.ParquetFile(input_file)
@@ -124,11 +125,8 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 rec.update(features)
                 # Compute age at post from birthyear mapping (assume birthdate Jan 1)
                 birthyear = _user_birthyear_map.get(author)
-                try:
-                    year = int(rec.get("Year", 0))
-                    rec["DMGAgeAtPost"] = year - int(birthyear) if birthyear is not None else ""
-                except Exception:
-                    rec["DMGAgeAtPost"] = ""
+                year = int(rec.get("Year", 0))
+                rec["DMGAgeAtPost"] = year - int(birthyear) if birthyear is not None else ""
                 posts_results.append(rec)
         
         write_results_to_csv(
