@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""
+Process Reddit pipeline: detect self-identified users and collect posts with linguistic features.
+"""
+import os
+import json
+import argparse
+import multiprocessing
+
+from helpers import (
+    get_all_jsonl_files,
+    filter_entry,
+    extract_columns,
+    SelfIdentificationDetector,
+    detect_self_identification_in_entry,
+    compute_all_features,
+    write_results_to_csv,
+    ensure_output_directory,
+)
+
+
+def main(input_dir: str, output_dir: str, workers: int = 1) -> None:
+    ensure_output_directory(os.path.join(output_dir, "_"))
+    detector = SelfIdentificationDetector()
+
+    # Stage 1: Detect self-identified users
+    files = get_all_jsonl_files(input_dir)
+
+    def process_file_stage1(file_path: str) -> list[dict]:
+        results_local: list[dict] = []
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+                    continue
+                matches = detect_self_identification_in_entry(entry, detector)
+                if not matches:
+                    continue
+                author = entry.get("author")
+                if not author or author in ("[deleted]", "AutoModerator", "Bot"):
+                    continue
+                results_local.append(
+                    {
+                        "author": author,
+                        "self_identification": matches,
+                        "post": extract_columns(entry, None),
+                    }
+                )
+        return results_local
+
+    if workers > 1:
+        with multiprocessing.Pool(workers) as pool:
+            file_results = pool.map(process_file_stage1, files)
+        self_results = [item for sublist in file_results for item in sublist]
+    else:
+        self_results: list[dict] = []
+        for file_path in files:
+            self_results.extend(process_file_stage1(file_path))
+
+    write_results_to_csv(
+        self_results,
+        os.path.join(output_dir, "reddit_users.csv"),
+        output_tsv=True,
+        data_source="reddit",
+        split="text",
+    )
+
+    # Stage 2: Collect posts by self-identified users and compute features
+    user_ids = {r["author"] for r in self_results}
+    files = get_all_jsonl_files(input_dir)
+
+    def process_file_stage2(file_path: str) -> list[dict]:
+        results_local: list[dict] = []
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                author = entry.get("author")
+                if author not in user_ids:
+                    continue
+                if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+                    continue
+                post = extract_columns(entry, None)
+                features = compute_all_features(post.get("selftext", ""))
+                post.update(features)
+                results_local.append(post)
+        return results_local
+
+    if workers > 1:
+        with multiprocessing.Pool(workers) as pool:
+            file_results = pool.map(process_file_stage2, files)
+        posts_results = [item for sublist in file_results for item in sublist]
+    else:
+        posts_results: list[dict] = []
+        for file_path in files:
+            posts_results.extend(process_file_stage2(file_path))
+
+    write_results_to_csv(
+        posts_results,
+        os.path.join(output_dir, "reddit_users_posts.csv"),
+        output_tsv=True,
+        data_source="reddit",
+        split="text",
+    )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run Reddit processing pipeline")
+    parser.add_argument(
+        "--input_dir", required=True, help="Directory with RS_*.jsonl files"
+    )
+    parser.add_argument(
+        "--output_dir", required=True, help="Directory to write output TSVs"
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of parallel worker processes for file-level parallelism",
+    )
+    args = parser.parse_args()
+    main(args.input_dir, args.output_dir, args.workers)
