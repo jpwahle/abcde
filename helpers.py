@@ -81,8 +81,6 @@ class SelfIdentificationDetector:
         """Resolve multiple age extractions using clustering and confidence scoring."""
         if not age_matches:
             return None
-        if current_year is None:
-            current_year = datetime.now().year
         birth_year_candidates: List[Tuple[int, float]] = []
         for age_str in age_matches:
             try:
@@ -442,16 +440,10 @@ def flatten_result_to_csv_row(
     # Compute majority birthyear and raw birthyear extractions
     self_id = result.get("self_identification", {})
     if data_source == "tusc":
-        try:
-            ref_year = int(result.get("Year", ""))
-        except (TypeError, ValueError):
-            ref_year = datetime.now().year
+        ref_year = int(result.get("Year", ""))
     else:
-        try:
-            ts = result.get("post", {}).get("created_utc")
-            ref_year = datetime.utcfromtimestamp(int(ts)).year
-        except Exception:
-            ref_year = datetime.now().year
+        ts = result.get("post", {}).get("created_utc")
+        ref_year = datetime.utcfromtimestamp(int(ts)).year
     raw_matches: List[str] = []
     majority_birthyear: Optional[int] = None
     if "resolved_age" in self_id:
