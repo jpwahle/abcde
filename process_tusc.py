@@ -16,6 +16,7 @@ from helpers import (
     write_results_to_csv,
     ensure_output_directory,
 )
+from datetime import datetime
 
 
 def determine_split(input_file: str) -> str:
@@ -45,6 +46,8 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
     
     self_results = []
     user_ids = set()
+    # Mapping from author to birthyear for age-at-post
+    _user_birthyear_map: dict[str, int] = {}
     
     # Stage 1: Detect self-identified users
     if stages in ["1", "both"]:
@@ -84,13 +87,18 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
     # Stage 2: Collect posts from self-identified users and compute features
     if stages in ["2", "both"]:
         print("Stage 2: Collect posts from self-identified users and compute features")
-        
-        # If we didn't run stage 1, load user IDs from existing file
+
+        # If we didn't run stage 1, load user IDs and birthyear mapping from existing file
+        self_users_file = os.path.join(output_dir, f"{split}_self_users.tsv")
         if stages == "2":
-            self_users_file = os.path.join(output_dir, f"{split}_self_users.tsv")
             user_ids = load_self_identified_users(self_users_file)
             print(f"Loaded {len(user_ids)} self-identified users from {self_users_file}")
-        
+        # Load birthyear mapping for age calculation
+        try:
+            df_users = pd.read_csv(self_users_file, sep='\t')
+            _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
+        except Exception:
+            _user_birthyear_map = {}
         posts_results: list[dict] = []
 
         parquet_file = pq.ParquetFile(input_file)
@@ -108,6 +116,13 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 rec["Author"] = author or ""
                 features = apply_linguistic_features(entry.get("PostText", ""))
                 rec.update(features)
+                # Compute age at post from birthyear mapping (assume birthdate Jan 1)
+                birthyear = _user_birthyear_map.get(author)
+                try:
+                    year = int(rec.get("Year", 0))
+                    rec["DMGAgeAtPost"] = year - int(birthyear) if birthyear is not None else ""
+                except Exception:
+                    rec["DMGAgeAtPost"] = ""
                 posts_results.append(rec)
         
         write_results_to_csv(

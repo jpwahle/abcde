@@ -433,17 +433,53 @@ def flatten_result_to_csv_row(
     result: Dict[str, Any], data_source: str, split: Optional[str] = None
 ) -> Dict[str, Any]:
     row: Dict[str, Any] = {}
+    # Author column
     if data_source == "tusc":
-        row["Author"] = result.get("userID", "")
-        self_id = result.get("self_identification", {})
-        if "resolved_age" in self_id:
-            res = self_id["resolved_age"]
-            row["SelfIdentificationAgeMajorityVote"] = res.get("age", "")
-            row["SelfIdentificationRawAges"] = "|".join(map(str, res.get("raw_matches", [])))
-        else:
-            am = self_id.get("age", [])
-            row["SelfIdentificationAgeMajorityVote"] = am[0] if am else ""
-            row["SelfIdentificationRawAges"] = "|".join(map(str, am))
+        row["Author"] = result.get("userID", "") or ""
+    else:
+        row["Author"] = result.get("author", "") or ""
+
+    # Compute majority birthyear and raw birthyear extractions
+    self_id = result.get("self_identification", {})
+    current_year = datetime.now().year
+    raw_matches: List[str] = []
+    majority_birthyear: Optional[int] = None
+    if "resolved_age" in self_id:
+        raw_matches = list(self_id["resolved_age"].get("raw_matches", []))
+        age_val = self_id["resolved_age"].get("age")
+        if isinstance(age_val, int):
+            majority_birthyear = current_year - age_val
+    else:
+        raw_matches = list(self_id.get("age", []))
+        if raw_matches:
+            try:
+                val = int(raw_matches[0])
+            except ValueError:
+                val = None
+            if isinstance(val, int):
+                if 1900 <= val <= current_year:
+                    majority_birthyear = val
+                elif 1 <= val <= 120:
+                    majority_birthyear = current_year - val
+    # Convert raw matches to birthyears
+    raw_birthyears: List[int] = []
+    for m in raw_matches:
+        try:
+            v = int(m)
+        except ValueError:
+            continue
+        if 1900 <= v <= current_year:
+            raw_birthyears.append(v)
+        elif 1 <= v <= 120:
+            raw_birthyears.append(current_year - v)
+    row["DMGMajorityBirthyear"] = majority_birthyear or ""
+    row["DMGRawBirthyearExtractions"] = "|".join(str(x) for x in raw_birthyears)
+
+    # Include age at posting if available (stage2)
+    if "DMGAgeAtPost" in result:
+        row["DMGAgeAtPost"] = result.get("DMGAgeAtPost", "")
+
+    if data_source == "tusc":
         row["PostID"] = result.get("TweetID", "")
         row["PostText"] = result.get("Tweet", "")
         row["PostCreatedAt"] = result.get("createdAt", "")
@@ -460,19 +496,7 @@ def flatten_result_to_csv_row(
         row["PostPlaceID"] = result.get("PlaceID", "")
         row["PostPlaceType"] = result.get("PlaceType", "")
     else:
-        row["Author"] = result.get("author", "")
-        self_id = result.get("self_identification", {})
-        if "resolved_age" in self_id:
-            res = self_id["resolved_age"]
-            row["SelfIdentificationAgeMajorityVote"] = res.get("age", "")
-            row["SelfIdentificationRawAges"] = "|".join(map(str, res.get("raw_matches", [])))
-        else:
-            am = self_id.get("age", [])
-            row["SelfIdentificationAgeMajorityVote"] = am[0] if am else ""
-            row["SelfIdentificationRawAges"] = "|".join(map(str, am))
-        # support nested post dict or flat result dict (stage2)
         post = result.get("post", result)
-        # static fields
         row["PostID"] = post.get("id", "")
         row["PostSubreddit"] = post.get("subreddit", "")
         row["PostTitle"] = post.get("title", "")
@@ -483,7 +507,6 @@ def flatten_result_to_csv_row(
         row["PostPermalink"] = post.get("permalink", "")
         row["PostUrl"] = post.get("url", "")
         row["PostMediaPath"] = post.get("media_path", "")
-        # include any additional feature fields from the post dict
         static_keys = {
             "id", "subreddit", "title", "selftext", "created_utc",
             "score", "num_comments", "permalink", "url", "media_path",
@@ -494,20 +517,33 @@ def flatten_result_to_csv_row(
                 row[key] = val
     return row
 
-def get_csv_fieldnames(data_source: str, split: Optional[str] = None) -> List[str]:
+def get_csv_fieldnames(
+    data_source: str,
+    split: Optional[str] = None,
+    stage: Optional[str] = None,
+) -> List[str]:
+    """
+    Get static CSV/TSV header fields based on data source and stage ('users' or 'posts').
+    """
+    # User-level headers: DMG birthyear info
+    if stage == "users":
+        user_cols = ["Author", "DMGMajorityBirthyear", "DMGRawBirthyearExtractions"]
+    else:
+        # Post-level headers: DMG age at post
+        user_cols = ["Author", "DMGAgeAtPost"]
     if data_source == "tusc":
-        base = ["Author","SelfIdentificationAgeMajorityVote","SelfIdentificationRawAges",
-                "PostID","PostText","PostCreatedAt","PostYear","PostMonth"]
+        base = user_cols + ["PostID", "PostText", "PostCreatedAt", "PostYear", "PostMonth"]
         if split == "city":
-            loc = ["PostCity","PostPlace","PostPlaceID","PostPlaceType"]
+            loc = ["PostCity", "PostPlace", "PostPlaceID", "PostPlaceType"]
         else:
-            loc = ["PostCountry","PostMyCountry","PostPlace","PostPlaceID","PostPlaceType"]
+            loc = ["PostCountry", "PostMyCountry", "PostPlace", "PostPlaceID", "PostPlaceType"]
         return base + loc
-    return [
-        "Author","SelfIdentificationAgeMajorityVote","SelfIdentificationRawAges",
-        "PostID","PostSubreddit","PostTitle","PostSelftext","PostCreatedUtc",
-        "PostScore","PostNumComments","PostPermalink","PostUrl","PostMediaPath",
+    # Reddit headers
+    base = user_cols + [
+        "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc",
+        "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
     ]
+    return base
 
 def ensure_output_directory(path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -523,15 +559,18 @@ def write_results_to_csv(
     ext = "tsv" if output_tsv else "csv"
     out = output_file.replace('.csv', f'.{ext}') if output_tsv else output_file
     ensure_output_directory(out)
+    # Determine whether writing users or posts file based on filename
+    fname = os.path.basename(out)
+    stage = 'posts' if 'posts' in fname else 'users'
     if results:
         rows = [flatten_result_to_csv_row(r, data_source, split) for r in results]
         # determine header including any feature columns (e.g., for Reddit stage2)
         if data_source != "tusc":
-            static_fields = get_csv_fieldnames(data_source, split)
+            static_fields = get_csv_fieldnames(data_source, split, stage)
             extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
             fieldnames = static_fields + extra_fields
         else:
-            fieldnames = get_csv_fieldnames(data_source, split)
+            fieldnames = get_csv_fieldnames(data_source, split, stage)
         with open(out, 'w', encoding='utf-8', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
             writer.writeheader()
@@ -539,7 +578,11 @@ def write_results_to_csv(
                 writer.writerow(row)
     else:
         with open(out, 'w', encoding='utf-8', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=get_csv_fieldnames(data_source, split), delimiter=sep)
+            writer = csv.DictWriter(
+                f,
+                fieldnames=get_csv_fieldnames(data_source, split, stage),
+                delimiter=sep
+            )
             writer.writeheader()
 
 # -------------------- #
