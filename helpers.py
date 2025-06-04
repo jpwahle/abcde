@@ -381,9 +381,6 @@ def load_body_parts(filepath: str) -> List[str]:
 
 
 def compute_prefixed_body_part_mentions(text: str, body_parts: List[str]) -> Dict[str, Any]:
-    if not isinstance(text, str):
-        return {col: "" if col.endswith("BPM") else 0 for col in
-                ["MyBPM","YourBPM","HerBPM","HisBPM","TheirBPM","HasBPM"]}
     lower = text.lower()
     prefixes = [("my ","MyBPM"),("your ","YourBPM"),("her ","HerBPM"),("his ","HisBPM"),("their ","TheirBPM")]
     res: Dict[str, Any] = {}

@@ -168,7 +168,7 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
 
         write_results_to_csv(
             self_results,
-            os.path.join(output_dir, "reddit_users.csv"),
+            os.path.join(output_dir, "reddit_users.tsv"),
             output_tsv=True,
             data_source="reddit",
             split="text",
@@ -184,7 +184,7 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
         
         # If we didn't run stage 1, load user IDs from existing file
         if stages == "2":
-            self_users_file = os.path.join(output_dir, "reddit_users.csv")
+            self_users_file = os.path.join(output_dir, "reddit_users.tsv")
             _user_ids = load_self_identified_users(self_users_file)
             print(f"Loaded {len(_user_ids)} self-identified users from {self_users_file}")
         else:
@@ -212,7 +212,7 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
 
         write_results_to_csv(
             posts_results,
-            os.path.join(output_dir, "reddit_users_posts.csv"),
+            os.path.join(output_dir, "reddit_users_posts.tsv"),
             output_tsv=True,
             data_source="reddit",
             split="text",

@@ -70,7 +70,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         
         write_results_to_csv(
             self_results,
-            os.path.join(output_dir, f"{split}_self_users.csv"),
+            os.path.join(output_dir, f"{split}_self_users.tsv"),
             output_tsv=True,
             data_source="tusc",
             split=split,
@@ -87,7 +87,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         
         # If we didn't run stage 1, load user IDs from existing file
         if stages == "2":
-            self_users_file = os.path.join(output_dir, f"{split}_self_users.csv")
+            self_users_file = os.path.join(output_dir, f"{split}_self_users.tsv")
             user_ids = load_self_identified_users(self_users_file)
             print(f"Loaded {len(user_ids)} self-identified users from {self_users_file}")
         
@@ -103,18 +103,18 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 entry = row.to_dict()
                 author = entry.get("UserID") or entry.get("userID") or entry.get("Author")
                 name = entry.get("UserName") or entry.get("userName") or entry.get("AuthorName")
-                if (author not in user_ids) and (name not in user_ids):
+                if (author not in user_ids) or (name not in user_ids):
                     continue
                 rec = entry.copy()
                 rec["Author"] = author or ""
                 rec["AuthorName"] = name or ""
-                features = apply_linguistic_features(entry.get("Tweet", ""))
+                features = apply_linguistic_features(entry.get("PostText", ""))
                 rec.update(features)
                 posts_results.append(rec)
         
         write_results_to_csv(
             posts_results,
-            os.path.join(output_dir, f"{split}_user_posts.csv"),
+            os.path.join(output_dir, f"{split}_user_posts.tsv"),
             output_tsv=True,
             data_source="tusc",
             split=split,
