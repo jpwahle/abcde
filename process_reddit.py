@@ -36,7 +36,7 @@ def load_self_identified_users(csv_path: str) -> set:
     user_ids = set()
     
     # Handle different possible column names
-    for col in ['author', 'Author', 'userID', 'UserID']:
+    for col in ['author', 'Author', 'userID']:
         if col in df.columns:
             user_ids.update(df[col].dropna().astype(str))
     

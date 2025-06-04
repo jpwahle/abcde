@@ -434,7 +434,7 @@ def flatten_result_to_csv_row(
 ) -> Dict[str, Any]:
     row: Dict[str, Any] = {}
     if data_source == "tusc":
-        row["Author"] = result.get("UserID") or result.get("userID", "")
+        row["Author"] = result.get("userID", "")
         self_id = result.get("self_identification", {})
         if "resolved_age" in self_id:
             res = self_id["resolved_age"]
