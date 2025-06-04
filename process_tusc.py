@@ -31,12 +31,13 @@ def load_self_identified_users(csv_path: str) -> set:
     
     df = pd.read_csv(csv_path, sep='\t')
     user_ids = set()
-    
+
     # Handle different possible column names
     for col in ['Author', 'userID']:
         if col in df.columns:
-            user_ids.update(df[col].dropna().astype(str))
-    
+            user_ids.update(df[col].dropna().astype(str).tolist())
+    # Normalize IDs as stripped, non-empty strings
+    user_ids = {uid.strip() for uid in user_ids if uid.strip()}
     return user_ids
 
 
@@ -81,8 +82,11 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
 
         print(f"Found {len(self_results)} self-identified users")
         
-        # Extract user IDs for stage 2
-        user_ids = {r.get("Author") or r.get("userID") or r.get("userName") for r in self_results}
+        # Extract user IDs for stage 2 (normalized to strings)
+        user_ids = {
+            str(r.get("Author") or r.get("userID") or r.get("userName") or "").strip()
+            for r in self_results
+        }
 
     # Stage 2: Collect posts from self-identified users and compute features
     if stages in ["2", "both"]:
@@ -109,8 +113,10 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
             df = batch.to_pandas()
             for _, row in df.iterrows():
                 entry = row.to_dict()
-                author = entry.get("userID") or entry.get("Author")
-                if (author not in user_ids):
+                # Only include posts by self-identified users
+                author_val = entry.get("userID") or entry.get("Author")
+                author = str(author_val).strip() if author_val is not None else ""
+                if author not in user_ids:
                     continue
                 rec = entry.copy()
                 rec["Author"] = author or ""
