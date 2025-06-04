@@ -127,69 +127,64 @@ def load_user_ids(self_id_csv: str, data_source: str = "reddit") -> Dict[str, in
     with open(self_id_csv, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f, delimiter=delimiter)
         for record in reader:
+            birth_year = None  # type: ignore[assignment]
             # Skip rows without age data
             age_str = record.get("SelfIdentificationAgeMajorityVote", "").strip()
             if not age_str:
-                continue
-                
-            try:
-                age_val = int(age_str)
-            except ValueError:
-                continue  # non-numeric match – skip
-
-            # Handle timestamp differences between data sources
-            if data_source == "tusc":
-                # TUSC uses PostCreatedAt with different timestamp format and PostYear
-                created_at_str = record.get("PostCreatedAt", "").strip()
-                post_year_str = record.get("PostYear", "").strip()
-                
-                # Try to get year from PostYear field first, then from timestamp
-                if post_year_str:
-                    try:
-                        post_year = int(post_year_str)
-                    except ValueError:
-                        post_year = None
-                else:
-                    # Try to parse timestamp
-                    if created_at_str:
-                        try:
-                            # TUSC timestamps are in different formats
-                            # Try ISO format first, then Twitter format
-                            if created_at_str.endswith('Z') or '+' in created_at_str:
-                                # ISO format
-                                created_at_str_clean = created_at_str.replace('Z', '+00:00') if created_at_str.endswith('Z') else created_at_str
-                                dt = datetime.fromisoformat(created_at_str_clean)
-                                post_year = dt.year
-                            else:
-                                # Twitter format: 'Mon Oct 10 20:16:13 +0000 2011'
-                                dt = datetime.strptime(created_at_str, '%a %b %d %H:%M:%S %z %Y')
-                                post_year = dt.year
-                        except (ValueError, TypeError):
-                            continue  # invalid timestamp
-                    else:
-                        continue  # need timestamp to estimate birth year
-                
-                if not post_year:
-                    continue
-                    
-            else:  # reddit
-                created_utc_str = record.get("PostCreatedUtc", "").strip()
-                if not created_utc_str:
-                    continue  # need post timestamp to estimate birth year
-
-                # Convert created_utc to float if it's a string
-                try:
-                    created_utc = float(created_utc_str)
-                    post_year = datetime.fromtimestamp(created_utc, timezone.utc).year
-                except (ValueError, TypeError, OSError):
-                    continue  # invalid timestamp
-
-            # Decide whether *age_val* is a literal age (e.g. "24") or a 4-digit
-            # birth year (e.g. "1998").
-            if 1800 <= age_val <= post_year:  # treat as YYYY birth year
-                birth_year = age_val
+                # Even if no age is available we still want to record the user below.
+                age_val = None
             else:
-                birth_year = post_year - age_val
+                try:
+                    age_val = int(float(age_str))  # handles "25" as well as "25.0"
+                except ValueError:
+                    age_val = None
+
+            # If we have at least some age information we attempt to estimate birth year.
+            if age_val is not None:
+                
+                # Handle timestamp differences between data sources
+                if data_source == "tusc":
+                    # TUSC uses PostCreatedAt with different timestamp format and PostYear
+                    created_at_str = record.get("PostCreatedAt", "").strip()
+                    post_year_str = record.get("PostYear", "").strip()
+                    # Try to get year from PostYear field first, then from timestamp
+                    if post_year_str:
+                        try:
+                            post_year = int(post_year_str)
+                        except ValueError:
+                            post_year = None
+                    else:
+                        if created_at_str:
+                            try:
+                                if created_at_str.endswith('Z') or '+' in created_at_str:
+                                    created_at_str_clean = created_at_str.replace('Z', '+00:00') if created_at_str.endswith('Z') else created_at_str
+                                    dt = datetime.fromisoformat(created_at_str_clean)
+                                    post_year = dt.year
+                                else:
+                                    dt = datetime.strptime(created_at_str, '%a %b %d %H:%M:%S %z %Y')
+                                    post_year = dt.year
+                            except (ValueError, TypeError):
+                                post_year = None
+                        else:
+                            post_year = None
+                else:  # reddit
+                    created_utc_str = record.get("PostCreatedUtc", "").strip()
+                    if created_utc_str:
+                        try:
+                            created_utc = float(created_utc_str)
+                            post_year = datetime.fromtimestamp(created_utc, timezone.utc).year
+                        except (ValueError, TypeError, OSError):
+                            post_year = None
+                    else:
+                        post_year = None
+
+                if post_year is not None:
+                    if 1800 <= age_val <= post_year:
+                        birth_year = age_val
+                    else:
+                        birth_year = post_year - age_val
+
+            # If age information is missing we keep birth_year as None.
 
             # Map username identifier - handle different data sources
             if data_source == "tusc":
@@ -205,7 +200,16 @@ def load_user_ids(self_id_csv: str, data_source: str = "reddit") -> Dict[str, in
             if data_source == "reddit" and author_name_val in ("AutoModerator", "Bot"):
                 continue
 
+            # Always record the user—even if we could not derive a reliable birth year.
+            # A missing birth year merely results in "AuthorAge" being left empty in the
+            # downstream CSV, but it should **not** prevent us from collecting that
+            # user's posts.  Previously we skipped the entire record whenever the
+            # age resolution failed, which led to 0 recognised users when the age
+            # field was absent or not purely numeric (e.g. "25.0", "about 30").
+
             if author_name_val and author_name_val not in {"", "[deleted]"}:
+                # Use .setdefault so that we do not overwrite an already computed
+                # birth year with *None* from a later, ambiguous row.
                 id_to_birth.setdefault(author_name_val, birth_year)
 
     return id_to_birth

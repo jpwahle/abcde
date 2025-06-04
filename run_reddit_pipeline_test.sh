@@ -15,13 +15,9 @@
 #SBATCH --time=04:00:00
 
 # ------------------ CONFIGURATION ----------------------------------------
-# Choose ONE of the following two possibilities:
-# 1) Use a single-year directory (uncomment):
+# Choose a single-year directory (uncomment):
 #     INPUT_DIR=/shared/reddit/2010
-# 2) Use a random 1% sample generated via sample.py (uncomment both SAMPLE_* lines):
-#     SAMPLE_INPUT_DIR=/shared/reddit/full
-#     SAMPLE_OUTPUT_DIR=/scratch/$USER/reddit_sample_1pct
-# ------------------------------------------------------------------------
+
 
 # Pick split to test (text only is usually enough):
 SPLIT=text

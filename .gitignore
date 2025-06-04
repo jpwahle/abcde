@@ -175,3 +175,6 @@ cython_debug/
 
 # Logs
 logs/
+
+# Outputs
+outputs_*/

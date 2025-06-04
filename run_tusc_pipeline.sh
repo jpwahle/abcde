@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=tusc_pipeline
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=8GB
+#SBATCH --mem=64GB
 #SBATCH --output=logs/tusc_%j.out
 #SBATCH --error=logs/tusc_%j.err
 
@@ -13,16 +13,15 @@
 # Stage 2: Collect all posts from those users and compute linguistic features
 #
 # Usage: sbatch run_tusc_pipeline.sh
-# Or: sbatch --export=INPUT_FILE=/path/to/file.parquet,SPLIT=city run_tusc_pipeline.sh
 #
 # This launcher job starts Python scripts that spin up their own Dask
 # clusters via dask-jobqueue/SLURMCluster (see --use_slurm flag).
 # The *real* heavy lifting is handled by the dynamically allocated Dask workers.
 
 # Default parameters (can be overridden via --export)
-INPUT_FILE=${INPUT_FILE:-"/shared/tusc/tusc-city.parquet"}
+INPUT_FILE=${INPUT_FILE:-"/beegfs/wahle/datasets/tusc/tusc-country.parquet"}
 OUTPUT_DIR=${OUTPUT_DIR:-"/beegfs/wahle/github/abcde/outputs_tusc"}
-CHUNK_SIZE=10000
+CHUNK_SIZE=1000
 N_WORKERS=256
 MEM_PER_WORKER=4GB
 
@@ -32,10 +31,6 @@ echo "Output directory: $OUTPUT_DIR"
 echo "Chunk size: $CHUNK_SIZE"
 echo "Number of workers: $N_WORKERS"
 echo "Memory per worker: $MEM_PER_WORKER"
-echo "Test mode: $TEST_MODE"
-if [ "$TEST_MODE" = "true" ]; then
-    echo "Test samples: $TEST_SAMPLES"
-fi
 echo "----------------------------------------"
 
 # Create output and log directories
@@ -48,11 +43,6 @@ set -euo pipefail
 INPUT_NAME=$(basename "$INPUT_FILE" .parquet)
 SELF_ID_CSV="$OUTPUT_DIR/${INPUT_NAME}_self_users.csv"
 FINAL_OUTPUT_CSV="$OUTPUT_DIR/${INPUT_NAME}_user_posts.csv"
-
-if [ "$TEST_MODE" = "true" ]; then
-    SELF_ID_CSV="$OUTPUT_DIR/${INPUT_NAME}_self_users_test.csv"
-    FINAL_OUTPUT_CSV="$OUTPUT_DIR/${INPUT_NAME}_user_posts_test.csv"
-fi
 
 echo "Stage 1: Identifying self-identified users..."
 echo "Output will be written to: $SELF_ID_CSV"
@@ -68,14 +58,6 @@ STAGE1_ARGS=(
     --use_slurm
     --output_tsv
 )
-
-# Add test mode arguments if enabled
-if [ "$TEST_MODE" = "true" ]; then
-    STAGE1_ARGS+=(--test_mode)
-    if [ -n "${TEST_SAMPLES:-}" ]; then
-        STAGE1_ARGS+=(--test_samples "$TEST_SAMPLES")
-    fi
-fi
 
 # Stage 1: Find self-identified users
 uv run python identify_self_users.py "${STAGE1_ARGS[@]}"

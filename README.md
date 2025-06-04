@@ -25,7 +25,7 @@ We bundle helper scripts in `download/` that automate fetching and extracting th
 # (optional) regenerate the URL lists – already versioned in the repo
 bash download/create-reddit-urls.sh
 
-# (1) Download all monthly Pushshift submissions (~800 GB compressed, ~2.8 TB uncompressed)
+# (1) Download all monthly Pushshift submissions (~800 GB compressed, ~3 TB uncompressed)
 bash download/download-reddit.sh
 #   ↳ files will be saved in the current directory as RS_YYYY-MM.zst (and RC_YYYY-MM.zst)
 

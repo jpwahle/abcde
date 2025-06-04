@@ -33,7 +33,8 @@ uv run python identify_self_users.py \
   --split "text" \
   --n_workers $N_WORKERS \
   --memory_per_worker $MEM_PER_WORKER \
-  --use_slurm
+  --use_slurm \
+  --output_tsv
 
 # --------------------------------------------------------------------
 # Stage 2 – collect all posts of those users & annotate features
@@ -44,6 +45,7 @@ uv run python collect_user_posts.py \
   --split "text" \
   --n_workers $N_WORKERS \
   --memory_per_worker $MEM_PER_WORKER \
-  --use_slurm
+  --use_slurm \
+  --output_tsv
 
 echo "[$(date)] Pipeline finished ✔" 
