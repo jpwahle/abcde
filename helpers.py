@@ -89,7 +89,7 @@ class SelfIdentificationDetector:
                 continue
             if 1900 <= age_val <= current_year:
                 birth_year, weight = age_val, 1.0
-            elif 1 <= age_val <= 120:
+            elif 13 <= age_val <= 100:  # Filter out ages below 13
                 birth_year, weight = current_year - age_val, 0.8
             else:
                 continue
@@ -117,7 +117,7 @@ class SelfIdentificationDetector:
         weighted_year = sum(by * w for by, w in best_cluster) / total_weight
         resolved_age = current_year - int(round(weighted_year))
         confidence = min(1.0, best_score / (len(age_matches) * 1.0))
-        if not (1 <= resolved_age <= 120):
+        if not (13 <= resolved_age <= 100):  # Filter out resolved ages below 13
             return None
         return resolved_age, confidence
 
@@ -154,7 +154,14 @@ def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector
     
     # If age matches found, resolve them
     if "age" in matches:
-        age_resolution = detector.resolve_multiple_ages(matches["age"])
+        # Extract post year for age resolution
+        if "Year" in entry:  # TUSC data
+            ref_year = int(entry.get("Year", ""))
+        else:  # Reddit data
+            ts = entry.get("created_utc") or entry.get("post", {}).get("created_utc")
+            ref_year = datetime.utcfromtimestamp(int(ts)).year
+        
+        age_resolution = detector.resolve_multiple_ages(matches["age"], current_year=ref_year)
         if age_resolution is not None:
             resolved_age, confidence = age_resolution
             matches["resolved_age"] = {
@@ -163,7 +170,7 @@ def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector
                 "raw_matches": matches["age"].copy()
             }
     
-    return matches 
+    return matches
 
 
 # -------------------- #
@@ -409,7 +416,9 @@ def detect_self_identification_in_tusc_entry(
     entry: Dict[str, Any], detector: SelfIdentificationDetector
 ) -> Dict[str, List[str]]:
     tweet = entry.get("Tweet", "") or ""
-    combined_entry = {"title": "", "selftext": tweet}
+    # Create combined entry preserving original metadata
+    combined_entry = entry.copy()
+    combined_entry.update({"title": "", "selftext": tweet})
     return detect_self_identification_with_resolved_age(combined_entry, detector)
 
 def apply_linguistic_features(text: str, include_features: bool = True) -> Dict[str, Any]:
@@ -440,9 +449,10 @@ def flatten_result_to_csv_row(
     # Compute majority birthyear and raw birthyear extractions
     self_id = result.get("self_identification", {})
     if data_source == "tusc":
+        print(result)
         ref_year = int(result.get("Year", ""))
     else:
-        ts = result.get("post", {}).get("created_utc")
+        ts = result.get("post", {}).get("created_utc") or result.get("created_utc")
         ref_year = datetime.utcfromtimestamp(int(ts)).year
     raw_matches: List[str] = []
     majority_birthyear: Optional[int] = None

@@ -14,7 +14,7 @@ from helpers import (
     filter_entry,
     extract_columns,
     SelfIdentificationDetector,
-    detect_self_identification_in_entry,
+    detect_self_identification_with_resolved_age,
     apply_linguistic_features,
     write_results_to_csv,
     ensure_output_directory,
@@ -52,7 +52,7 @@ def process_chunk_stage1(task):
             continue
         if not filter_entry(entry, split="text", min_words=5, max_words=1000):
             continue
-        matches = detect_self_identification_in_entry(entry, _detector)
+        matches = detect_self_identification_with_resolved_age(entry, _detector)
         if not matches:
             continue
         author = entry.get("author")
@@ -61,7 +61,6 @@ def process_chunk_stage1(task):
         results_local.append(
             {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
         )
-    print(f"Processed {len(results_local)} posts from {path}. Found {len(matches)} self-identified users.")
     return results_local
 
 
@@ -75,7 +74,7 @@ def process_file_stage1(file_path: str) -> list[dict]:
                 continue
             if not filter_entry(entry, split="text", min_words=5, max_words=1000):
                 continue
-            matches = detect_self_identification_in_entry(entry, _detector)
+            matches = detect_self_identification_with_resolved_age(entry, _detector)
             if not matches:
                 continue
             author = entry.get("author")
@@ -214,10 +213,6 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
         
         global _user_birthyear_map
         _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
-
-        print(f"df_users: {df_users}")
-        print(f"df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict(): {df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()}")
-        
 
         if chunk_size and chunk_size > 0:
             tasks2 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
