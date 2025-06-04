@@ -336,8 +336,9 @@ def run_tusc_pipeline(
         else:
             # Read with Dask and partition appropriately
             ddf = dd.read_parquet(input_file, engine='pyarrow')
-            # Repartition to have reasonable chunk sizes
-            ddf = ddf.repartition(partition_size=f"{chunk_size} rows")
+            # Repartition to have reasonable chunk sizes based on number of partitions
+            target_partitions = max(1, len(ddf) // chunk_size + 1) if len(ddf) > 0 else n_workers
+            ddf = ddf.repartition(npartitions=min(target_partitions, n_workers * 4))
             logger.info(f"Processing {len(ddf)} rows with {ddf.npartitions} partitions")
 
         # Process partitions to find self-identified users
