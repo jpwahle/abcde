@@ -441,14 +441,24 @@ def flatten_result_to_csv_row(
 
     # Compute majority birthyear and raw birthyear extractions
     self_id = result.get("self_identification", {})
-    current_year = datetime.now().year
+    if data_source == "tusc":
+        try:
+            ref_year = int(result.get("Year", ""))
+        except (TypeError, ValueError):
+            ref_year = datetime.now().year
+    else:
+        try:
+            ts = result.get("post", {}).get("created_utc")
+            ref_year = datetime.utcfromtimestamp(int(ts)).year
+        except Exception:
+            ref_year = datetime.now().year
     raw_matches: List[str] = []
     majority_birthyear: Optional[int] = None
     if "resolved_age" in self_id:
         raw_matches = list(self_id["resolved_age"].get("raw_matches", []))
         age_val = self_id["resolved_age"].get("age")
         if isinstance(age_val, int):
-            majority_birthyear = current_year - age_val
+            majority_birthyear = ref_year - age_val
     else:
         raw_matches = list(self_id.get("age", []))
         if raw_matches:
@@ -457,10 +467,10 @@ def flatten_result_to_csv_row(
             except ValueError:
                 val = None
             if isinstance(val, int):
-                if 1900 <= val <= current_year:
+                if 1900 <= val <= ref_year:
                     majority_birthyear = val
                 elif 1 <= val <= 120:
-                    majority_birthyear = current_year - val
+                    majority_birthyear = ref_year - val
     # Convert raw matches to birthyears
     raw_birthyears: List[int] = []
     for m in raw_matches:
@@ -468,10 +478,10 @@ def flatten_result_to_csv_row(
             v = int(m)
         except ValueError:
             continue
-        if 1900 <= v <= current_year:
+        if 1900 <= v <= ref_year:
             raw_birthyears.append(v)
         elif 1 <= v <= 120:
-            raw_birthyears.append(current_year - v)
+            raw_birthyears.append(ref_year - v)
     row["DMGMajorityBirthyear"] = majority_birthyear or ""
     row["DMGRawBirthyearExtractions"] = "|".join(str(x) for x in raw_birthyears)
 
