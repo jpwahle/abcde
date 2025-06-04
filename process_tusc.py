@@ -32,7 +32,7 @@ def load_self_identified_users(csv_path: str) -> set:
     user_ids = set()
     
     # Handle different possible column names
-    for col in ['Author', 'userID', 'UserID']:
+    for col in ['Author', 'userID']:
         if col in df.columns:
             user_ids.update(df[col].dropna().astype(str))
     
@@ -79,7 +79,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         print(f"Found {len(self_results)} self-identified users")
         
         # Extract user IDs for stage 2
-        user_ids = {r.get("Author") or r.get("userID") for r in self_results}
+        user_ids = {r.get("Author") or r.get("userID") or r.get("userName") for r in self_results}
 
     # Stage 2: Collect posts from self-identified users and compute features
     if stages in ["2", "both"]:
@@ -101,13 +101,11 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
             df = batch.to_pandas()
             for _, row in df.iterrows():
                 entry = row.to_dict()
-                author = entry.get("UserID") or entry.get("userID") or entry.get("Author")
-                name = entry.get("UserName") or entry.get("userName") or entry.get("AuthorName")
-                if (author not in user_ids) or (name not in user_ids):
+                author = entry.get("userID") or entry.get("Author")
+                if (author not in user_ids):
                     continue
                 rec = entry.copy()
                 rec["Author"] = author or ""
-                rec["AuthorName"] = name or ""
                 features = apply_linguistic_features(entry.get("PostText", ""))
                 rec.update(features)
                 posts_results.append(rec)

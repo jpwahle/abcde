@@ -430,7 +430,6 @@ def flatten_result_to_csv_row(
     row: Dict[str, Any] = {}
     if data_source == "tusc":
         row["Author"] = result.get("UserID") or result.get("userID", "")
-        row["AuthorName"] = result.get("UserName") or result.get("userName", "")
         self_id = result.get("self_identification", {})
         if "resolved_age" in self_id:
             res = self_id["resolved_age"]
@@ -492,7 +491,7 @@ def flatten_result_to_csv_row(
 
 def get_csv_fieldnames(data_source: str, split: Optional[str] = None) -> List[str]:
     if data_source == "tusc":
-        base = ["Author","AuthorName","SelfIdentificationAgeMajorityVote","SelfIdentificationRawAges",
+        base = ["Author","SelfIdentificationAgeMajorityVote","SelfIdentificationRawAges",
                 "PostID","PostText","PostCreatedAt","PostYear","PostMonth"]
         if split == "city":
             loc = ["PostCity","PostPlace","PostPlaceID","PostPlaceType"]
