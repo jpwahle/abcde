@@ -151,15 +151,56 @@ def process_file_stage2(file_path) -> list[dict]:
     return results_local
 
 
-def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0, stages: str = "both") -> None:
+def main(
+    input_dir: str,
+    output_dir: str,
+    workers: int = 1,
+    chunk_size: int = 0,
+    stages: str = "both",
+    task_id: int = 0,
+    total_tasks: int = 1,
+) -> None:
     ensure_output_directory(os.path.join(output_dir, "_"))
 
     files = get_all_jsonl_files(input_dir)
+
+    def partition_files_by_size(paths: list[str], n: int) -> tuple[list[list[str]], list[int]]:
+        sizes = [(p, os.path.getsize(p)) for p in paths]
+        sizes.sort(key=lambda x: x[1], reverse=True)
+        groups = [[] for _ in range(n)]
+        totals = [0] * n
+        for path, sz in sizes:
+            idx = totals.index(min(totals))
+            groups[idx].append(path)
+            totals[idx] += sz
+        return groups, totals
+
+    if total_tasks > 1:
+        groups, totals = partition_files_by_size(files, total_tasks)
+        files = groups[task_id]
+        total_size_gb = totals[task_id] / 1024 ** 3
+        print(
+            f"Task {task_id + 1}/{total_tasks} processing {len(files)} files (~{total_size_gb:.2f} GB)"
+        )
     # helper to split a JSONL file into chunks of lines
     def read_jsonl_chunks(path: str) -> list[list[str]]:
         with open(path, "r", encoding="utf-8") as fh:
             for lines in iter(lambda: list(itertools.islice(fh, chunk_size)), []):
                 yield lines
+
+    def run_pool(tasks, func, stage_label: str):
+        results = []
+        total = len(tasks)
+        if workers > 1:
+            with multiprocessing.Pool(workers) as pool:
+                for idx, part in enumerate(pool.imap(func, tasks), 1):
+                    results.extend(part)
+                    print(f"[{stage_label}] Finished chunk {idx}/{total}")
+        else:
+            for idx, task in enumerate(tasks, 1):
+                results.extend(func(task))
+                print(f"[{stage_label}] Finished chunk {idx}/{total}")
+        return results
 
     self_results = []
     
@@ -168,26 +209,11 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
         print("Stage 1: Detect self-identified users")
         
         if chunk_size and chunk_size > 0:
-            # split files into line-based chunks to limit memory per task
             tasks1 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
-            if workers > 1:
-                with multiprocessing.Pool(workers) as pool:
-                    parts = pool.map(process_chunk_stage1, tasks1)
-                self_results = [r for part in parts for r in part]
-            else:
-                self_results: list[dict] = []
-                for task in tasks1:
-                    self_results.extend(process_chunk_stage1(task))
+            self_results = run_pool(tasks1, process_chunk_stage1, "stage1")
         else:
-            # process entire files
-            if workers > 1:
-                with multiprocessing.Pool(workers) as pool:
-                    file_results = pool.map(process_file_stage1, files)
-                self_results = [item for sublist in file_results for item in sublist]
-            else:
-                self_results: list[dict] = []
-                for file_path in files:
-                    self_results.extend(process_file_stage1(file_path))
+            tasks1 = files
+            self_results = run_pool(tasks1, process_file_stage1, "stage1")
 
         write_results_to_csv(
             self_results,
@@ -220,23 +246,10 @@ def main(input_dir: str, output_dir: str, workers: int = 1, chunk_size: int = 0,
 
         if chunk_size and chunk_size > 0:
             tasks2 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
-            if workers > 1:
-                with multiprocessing.Pool(workers) as pool:
-                    parts = pool.map(process_chunk_stage2, (tasks2))
-                posts_results = [r for part in parts for r in part]
-            else:
-                posts_results: list[dict] = []
-                for task in tasks2:
-                    posts_results.extend(process_chunk_stage2(task))
+            posts_results = run_pool(tasks2, process_chunk_stage2, "stage2")
         else:
-            if workers > 1:
-                with multiprocessing.Pool(workers) as pool:
-                    file_results = pool.map(process_file_stage2, files)
-                posts_results = [item for sublist in file_results for item in sublist]
-            else:
-                posts_results: list[dict] = []
-                for file_path in files:
-                    posts_results.extend(process_file_stage2(file_path))
+            tasks2 = files
+            posts_results = run_pool(tasks2, process_file_stage2, "stage2")
 
         write_results_to_csv(
             posts_results,
@@ -269,9 +282,18 @@ if __name__ == "__main__":
         default=0,
         help="Split large JSONL files into chunks of this many lines",
     )
-    parser.add_argument(
-        "--stages", choices=["1", "2", "both"], default="both",
-        help="Which stages to run: '1' for self-identification detection only, '2' for post collection only, 'both' for complete pipeline"
-    )
+    parser.add_argument("--stages", choices=["1", "2", "both"], default="both",
+        help="Which stages to run: 1 for self-identification detection only, 2 for post collection only, both for complete pipeline")
+    parser.add_argument("--task_id", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_ID", 0)), help="Task index when running as SLURM array")
+    parser.add_argument("--total_tasks", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_COUNT", 1)), help="Total number of tasks in the SLURM array")
+    
     args = parser.parse_args()
-    main(args.input_dir, args.output_dir, args.workers, args.chunk_size, args.stages)
+    main(
+        args.input_dir,
+        args.output_dir,
+        args.workers,
+        args.chunk_size,
+        args.stages,
+        args.task_id,
+        args.total_tasks,
+    )
