@@ -709,6 +709,8 @@ def get_all_jsonl_files(path: str) -> List[str]:
         for nm in fnames:
             if nm.startswith('RS_'):
                 files.append(os.path.join(root, nm))
+    # Sort by name to ensure consistent order
+    files.sort()
     return files
 
 def clean_text_newlines(text: str) -> str:
