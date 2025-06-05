@@ -32,6 +32,9 @@ bash download/download-reddit.sh
 # (2) Decompress the .zst archives (requires the zstd CLI)
 bash download/extract-data.sh
 #   ↳ produces RS_YYYY-MM.jsonl which are consumed by the pipeline
+
+# (optional) pre-compute line counts for faster repeated runs
+bash compute_linecounts.sh /path/to/reddit
 ```
 
 Tips:
