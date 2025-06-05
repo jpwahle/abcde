@@ -1,4 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#SBATCH --job-name=extract_data
+#SBATCH --output=logs/extract_data.out
+#SBATCH --error=logs/extract_data.err
+#SBATCH --time=8:00:00
+#SBATCH --mem=1G
+#SBATCH --cpus-per-task=1
+#SBATCH --nodes=1
 
 # Function to extract a single .zst file
 extract_file() {
