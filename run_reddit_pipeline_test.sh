@@ -4,7 +4,7 @@
 #SBATCH --error=logs/reddit_pipeline_test.%A_%a.err
 #SBATCH --time=02:00:00
 #SBATCH --mem=8G
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
 #SBATCH --array=0-0
 

@@ -6,7 +6,6 @@ import os
 import json
 import argparse
 import itertools
-import multiprocessing
 import pandas as pd
 
 from helpers import (
@@ -16,7 +15,7 @@ from helpers import (
     SelfIdentificationDetector,
     detect_self_identification_with_resolved_age,
     apply_linguistic_features,
-    write_results_to_csv,
+    append_results_to_csv,
     ensure_output_directory,
 )
 from datetime import datetime
@@ -183,47 +182,48 @@ def main(
             f"Task {task_id + 1}/{total_tasks} processing {len(files)} files (~{total_size_gb:.2f} GB)"
         )
     # helper to split a JSONL file into chunks of lines
-    def read_jsonl_chunks(path: str) -> list[list[str]]:
+    def read_jsonl_chunks(path: str):
+        """Yield lists of lines from a JSONL file with a fixed chunk size."""
         with open(path, "r", encoding="utf-8") as fh:
             for lines in iter(lambda: list(itertools.islice(fh, chunk_size)), []):
                 yield lines
 
-    def run_pool(tasks, func, stage_label: str):
-        results = []
-        total = len(tasks)
-        if workers > 1:
-            with multiprocessing.Pool(workers) as pool:
-                for idx, part in enumerate(pool.imap(func, tasks), 1):
-                    results.extend(part)
-                    print(f"[{stage_label}] Finished chunk {idx}/{total}")
-        else:
-            for idx, task in enumerate(tasks, 1):
-                results.extend(func(task))
-                print(f"[{stage_label}] Finished chunk {idx}/{total}")
-        return results
+    def generate_tasks(paths: list[str]):
+        """Yield (file_path, lines_or_none) pairs assigned to this array task."""
+        idx = 0
+        for fp in paths:
+            if chunk_size and chunk_size > 0:
+                for chunk in read_jsonl_chunks(fp):
+                    if idx % total_tasks == task_id:
+                        yield fp, chunk
+                    idx += 1
+            else:
+                if idx % total_tasks == task_id:
+                    yield fp, None
+                idx += 1
 
-    self_results = []
-    
+    self_user_ids: list[str] = []
+    users_path = os.path.join(output_dir, "reddit_users.tsv")
+
     # Stage 1: Detect self-identified users (by file or by chunk)
     if stages in ["1", "both"]:
         print("Stage 1: Detect self-identified users")
-        
-        if chunk_size and chunk_size > 0:
-            tasks1 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
-            self_results = run_pool(tasks1, process_chunk_stage1, "stage1")
-        else:
-            tasks1 = files
-            self_results = run_pool(tasks1, process_file_stage1, "stage1")
 
-        write_results_to_csv(
-            self_results,
-            os.path.join(output_dir, "reddit_users.tsv"),
-            output_tsv=True,
-            data_source="reddit",
-            split="text",
-        )
-        
-        print(f"Found {len(self_results)} self-identified users")
+        for fp, lines in generate_tasks(files):
+            if lines is None:
+                part = process_file_stage1(fp)
+            else:
+                part = process_chunk_stage1((fp, lines))
+            append_results_to_csv(
+                part,
+                users_path,
+                output_tsv=True,
+                data_source="reddit",
+                split="text",
+            )
+            self_user_ids.extend([r["author"] for r in part])
+
+        print(f"Task {task_id} found {len(self_user_ids)} self-identified users")
 
     # Stage 2: Collect posts by self-identified users and compute features
     if stages in ["2", "both"]:
@@ -234,9 +234,11 @@ def main(
         self_users_file = os.path.join(output_dir, "reddit_users.tsv")
         if stages == "2":
             _user_ids = load_self_identified_users(self_users_file)
-            print(f"Loaded {len(_user_ids)} self-identified users from {self_users_file}")
+            print(
+                f"Loaded {len(_user_ids)} self-identified users from {self_users_file}"
+            )
         else:
-            _user_ids = {r["author"] for r in self_results}
+            _user_ids = set(self_user_ids)
 
         # Load DMG birthyear mapping for age-at-post computation
         df_users = pd.read_csv(self_users_file, sep='\t')
@@ -244,22 +246,23 @@ def main(
         global _user_birthyear_map
         _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
 
-        if chunk_size and chunk_size > 0:
-            tasks2 = [(fp, chunk) for fp in files for chunk in read_jsonl_chunks(fp)]
-            posts_results = run_pool(tasks2, process_chunk_stage2, "stage2")
-        else:
-            tasks2 = files
-            posts_results = run_pool(tasks2, process_file_stage2, "stage2")
+        posts_path = os.path.join(output_dir, "reddit_users_posts.tsv")
+        total_posts = 0
+        for fp, lines in generate_tasks(files):
+            if lines is None:
+                part = process_file_stage2(fp)
+            else:
+                part = process_chunk_stage2((fp, lines))
+            append_results_to_csv(
+                part,
+                posts_path,
+                output_tsv=True,
+                data_source="reddit",
+                split="text",
+            )
+            total_posts += len(part)
 
-        write_results_to_csv(
-            posts_results,
-            os.path.join(output_dir, "reddit_users_posts.tsv"),
-            output_tsv=True,
-            data_source="reddit",
-            split="text",
-        )
-        
-        print(f"Found {len(posts_results)} posts from self-identified users")
+        print(f"Task {task_id} found {total_posts} posts from self-identified users")
 
 
 if __name__ == "__main__":

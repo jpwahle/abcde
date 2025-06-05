@@ -660,6 +660,43 @@ def write_results_to_csv(
             )
             writer.writeheader()
 
+def append_results_to_csv(
+    results: List[Dict[str, Any]],
+    output_file: str,
+    output_tsv: bool,
+    data_source: str,
+    split: Optional[str] = None,
+) -> None:
+    """Append rows to a CSV/TSV while creating the file with a header if needed."""
+    sep = "\t" if output_tsv else ","
+    ext = "tsv" if output_tsv else "csv"
+    out = output_file.replace('.csv', f'.{ext}') if output_tsv else output_file
+    ensure_output_directory(out)
+    fname = os.path.basename(out)
+    stage = 'posts' if 'posts' in fname else 'users'
+    if not results:
+        return
+    rows = [flatten_result_to_csv_row(r, data_source, split) for r in results]
+    if os.path.exists(out) and os.path.getsize(out) > 0:
+        with open(out, 'r', encoding='utf-8') as f:
+            header = f.readline().strip().split(sep)
+        fieldnames = header
+        write_header = False
+    else:
+        if data_source != "tusc":
+            static_fields = get_csv_fieldnames(data_source, split, stage)
+            extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
+            fieldnames = static_fields + extra_fields
+        else:
+            fieldnames = get_csv_fieldnames(data_source, split, stage)
+        write_header = True
+    with open(out, 'a', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
+        if write_header:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
 # -------------------- #
 # JSONL File Handling & Filtering
 # -------------------- #
