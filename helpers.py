@@ -236,10 +236,9 @@ def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector
 _DATA_DIR = Path("data")
 
 def _safe_read(path: Path) -> List[str]:
-    try:
-        return path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        return []
+    if not path.exists():
+        raise FileNotFoundError(f"Lexicon file not found: {path}")
+    return path.read_text(encoding="utf-8").splitlines()
 
 def _load_lexicon(
     filename: str,
@@ -478,8 +477,10 @@ def detect_self_identification_in_tusc_entry(
     return detect_self_identification_with_resolved_age(combined_entry, detector)
 
 def apply_linguistic_features(text: str, include_features: bool = True) -> Dict[str, Any]:
-    if not include_features or not text:
+    if not include_features:
         return {}
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Text for linguistic feature extraction must be a non-empty string")
     features = compute_vad_and_emotions(
         text, vad_dict, emotion_dict, emotions, worry_dict,
         moraltrust_dict, socialwarmth_dict, warmth_dict
@@ -571,6 +572,15 @@ def flatten_result_to_csv_row(
         row["PostPlace"] = result.get("Place", "")
         row["PostPlaceID"] = result.get("PlaceID", "")
         row["PostPlaceType"] = result.get("PlaceType", "")
+        static_keys = {
+            "TweetID", "Tweet", "createdAt", "Year", "Month", "City", "Country",
+            "MyCountry", "Place", "PlaceID", "PlaceType", "UserID", "userID",
+            "userName", "Author", "DMGAgeAtPost", "DMGMajorityBirthyear",
+            "DMGRawBirthyearExtractions"
+        }
+        for key, val in result.items():
+            if key not in static_keys and key not in row:
+                row[key] = val
     else:
         post = result.get("post", result)
         row["PostID"] = post.get("id", "")
@@ -639,13 +649,10 @@ def write_results_to_csv(
     stage = 'posts' if 'posts' in fname else 'users'
     if results:
         rows = [flatten_result_to_csv_row(r, data_source, split) for r in results]
-        # determine header including any feature columns (e.g., for Reddit stage2)
-        if data_source != "tusc":
-            static_fields = get_csv_fieldnames(data_source, split, stage)
-            extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
-            fieldnames = static_fields + extra_fields
-        else:
-            fieldnames = get_csv_fieldnames(data_source, split, stage)
+        # determine header including any feature columns
+        static_fields = get_csv_fieldnames(data_source, split, stage)
+        extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
+        fieldnames = static_fields + extra_fields
         with open(out, 'w', encoding='utf-8', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
             writer.writeheader()
@@ -683,12 +690,9 @@ def append_results_to_csv(
         fieldnames = header
         write_header = False
     else:
-        if data_source != "tusc":
-            static_fields = get_csv_fieldnames(data_source, split, stage)
-            extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
-            fieldnames = static_fields + extra_fields
-        else:
-            fieldnames = get_csv_fieldnames(data_source, split, stage)
+        static_fields = get_csv_fieldnames(data_source, split, stage)
+        extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
+        fieldnames = static_fields + extra_fields
         write_header = True
     with open(out, 'a', encoding='utf-8', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)

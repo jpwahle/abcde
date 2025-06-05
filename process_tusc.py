@@ -123,8 +123,14 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 rec.update(features)
                 # Compute age at post from birthyear mapping (assume birthdate Jan 1)
                 birthyear = _user_birthyear_map.get(author)
-                year = int(rec.get("Year", 0))
-                rec["DMGAgeAtPost"] = year - int(birthyear) if birthyear is not None else ""
+                if birthyear is None or str(birthyear).strip() == "":
+                    raise ValueError(f"Missing birthyear for author {author}")
+                try:
+                    year = int(rec.get("Year"))
+                    birth = int(birthyear)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid year or birthyear for author {author}")
+                rec["DMGAgeAtPost"] = year - birth
                 posts_results.append(rec)
         
         write_results_to_csv(
