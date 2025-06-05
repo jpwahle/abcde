@@ -10,7 +10,7 @@ The code is intentionally *data-source agnostic* – only the file crawler (whic
 
 ```mermaid
 graph TD
-    A[Dump of RS_*.jsonl files (≈3 TB)] -->|Dask-parallel| B[identify_self_users.py]
+    A[Dump of RS_*.jsonl files (≈6 TB)] -->|Dask-parallel| B[identify_self_users.py]
     B -->|self-identified authors| C[self_users.csv]
     C --> D[collect_user_posts.py]
     D -->|enriched posts| E[self_users_posts.csv]
@@ -25,7 +25,7 @@ We bundle helper scripts in `download/` that automate fetching and extracting th
 # (optional) regenerate the URL lists – already versioned in the repo
 bash download/create-reddit-urls.sh
 
-# (1) Download all monthly Pushshift submissions (~800 GB compressed, ~3 TB uncompressed)
+# (1) Download all monthly Pushshift submissions (~800 GB compressed, ~6 TB uncompressed)
 bash download/download-reddit.sh
 #   ↳ files will be saved in the current directory as RS_YYYY-MM.zst (and RC_YYYY-MM.zst)
 
@@ -39,13 +39,13 @@ bash compute_linecounts.sh /path/to/reddit
 
 Tips:
 * To limit the download to certain years or months, simply edit the `reddit-*-urls.txt` files before step 1.
-* Make sure you have **at least 3 TB** of free disk space *after* decompression.
+* Make sure you have **at least 6 TB** of free disk space *after* decompression.
 * Install `zstd` if `unzstd`/`zstd` is not available: `sudo apt install zstd` (Debian/Ubuntu).
 * You can move the extracted `.jsonl` files anywhere – just pass their directory via `--input_dir` in the next section.
 
 ## 3. Quickstart (local execution)
 
-> **Warning**  Scanning the full 3 TB Reddit dump is a multi-hour job. Start with a subset to validate the setup.
+> **Warning**  Scanning the full 6 TB Reddit dump is a multi-hour job. Start with a subset to validate the setup.
 
 ```bash
 # (1) Find self-identified users (outputs CSV with flattened structure and resolved age)
