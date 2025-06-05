@@ -120,7 +120,7 @@ def process_chunk_stage2(task):
         if not filter_entry(entry, split="text", min_words=5, max_words=1000):
             continue
         post = extract_columns(entry, None)
-        features = apply_linguistic_features(post.get("selftext", ""))
+        features = apply_linguistic_features(post["selftext"])
         post.update(features)
         # Compute age at post from birthyear mapping
         birthyear = _user_birthyear_map.get(author)
@@ -150,7 +150,7 @@ def process_file_stage2(file_path) -> list[dict]:
             if not filter_entry(entry, split="text", min_words=5, max_words=1000):
                 continue
             post = extract_columns(entry, None)
-            features = apply_linguistic_features(post.get("selftext", ""))
+            features = apply_linguistic_features(post["selftext"])
             post.update(features)
             # Compute age at post from birthyear mapping
             birthyear = _user_birthyear_map.get(author)
