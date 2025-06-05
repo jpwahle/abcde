@@ -208,7 +208,15 @@ def main(
         # With chunked processing all tasks share the same list of files but
         # distribute chunks globally across tasks.
         for fp in files:
-            n_lines = count_lines(fp)
+            lc_path = f"{fp}_linecount"
+            if os.path.exists(lc_path):
+                try:
+                    with open(lc_path, "r") as lc_f:
+                        n_lines = int(lc_f.read().strip())
+                except Exception:
+                    n_lines = count_lines(fp)
+            else:
+                n_lines = count_lines(fp)
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
         total_size_gb = sum(os.path.getsize(p) for p in files) / 1024 ** 3
