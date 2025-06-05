@@ -13,6 +13,7 @@ set -euxo pipefail
 # sample paths for testing
 INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted/RS_2010-01
 OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit_test
+LINECOUNT_DIR=/beegfs/wahle/github/abcde/reddit_linecounts
 # number of lines per chunk for large JSONL files (0 = process whole file at once)
 CHUNK_SIZE=${CHUNK_SIZE:-100000}
 STAGES="both"
@@ -24,4 +25,5 @@ uv run python process_reddit.py \
     --chunk_size "$CHUNK_SIZE" \
     --stages "$STAGES" \
     --task_id "${SLURM_ARRAY_TASK_ID:-0}" \
-    --total_tasks "${SLURM_ARRAY_TASK_COUNT:-1}"
+    --total_tasks "${SLURM_ARRAY_TASK_COUNT:-1}" \
+    --linecount_dir "$LINECOUNT_DIR"

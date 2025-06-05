@@ -175,6 +175,7 @@ def main(
     stages: str = "both",
     task_id: int = 0,
     total_tasks: int = 1,
+    linecount_dir: str = None,
 ) -> None:
     ensure_output_directory(os.path.join(output_dir, "_"))
 
@@ -208,7 +209,9 @@ def main(
         # With chunked processing all tasks share the same list of files but
         # distribute chunks globally across tasks.
         for fp in files:
-            lc_path = f"{fp}_linecount"
+            if linecount_dir:
+                filename = os.path.basename(fp)
+                lc_path = os.path.join(linecount_dir, f"{filename}_linecount")
             if os.path.exists(lc_path):
                 try:
                     with open(lc_path, "r") as lc_f:
@@ -329,6 +332,7 @@ if __name__ == "__main__":
         help="Which stages to run: 1 for self-identification detection only, 2 for post collection only, both for complete pipeline")
     parser.add_argument("--task_id", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_ID", 0)), help="Task index when running as SLURM array")
     parser.add_argument("--total_tasks", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_COUNT", 1)), help="Total number of tasks in the SLURM array")
+    parser.add_argument("--linecount_dir", type=str, help="Directory containing precomputed linecount files (filename_linecount format)")
     
     args = parser.parse_args()
     main(
@@ -339,4 +343,5 @@ if __name__ == "__main__":
         args.stages,
         args.task_id,
         args.total_tasks,
+        args.linecount_dir,
     )

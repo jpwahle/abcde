@@ -1,18 +1,36 @@
 #!/usr/bin/env bash
-# Compute line counts for reddit dataset files.
-# Usage: ./compute_linecounts.sh <data_dir>
+#SBATCH --job-name=compute_linecounts
+#SBATCH --output=logs/compute_linecounts.%A_%a.out
+#SBATCH --error=logs/compute_linecounts.%A_%a.err
+#SBATCH --time=4:00:00
+#SBATCH --mem=1G
+#SBATCH --cpus-per-task=1
+#SBATCH --nodes=1
+#SBATCH --array=0-120   
+
+# Compute line counts for reddit dataset files in parallel using SLURM array.
 # Generates a file with suffix _linecount for each dataset file.
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <DATA_DIR>" >&2
-    exit 1
+DATA_DIR="/beegfs/wahle/datasets/reddit-2010-2020/extracted/"
+OUTPUT_DIR="/beegfs/wahle/github/abcde/reddit_linecounts"
+
+mkdir -p "$OUTPUT_DIR"
+
+# Create array of files
+mapfile -t files < <(find "$DATA_DIR" -type f \( -name 'RS_*' -o -name 'RC_*' \) | sort)
+
+# Get the file for this array task
+if [ "${SLURM_ARRAY_TASK_ID}" -ge "${#files[@]}" ]; then
+    echo "Array task ID ${SLURM_ARRAY_TASK_ID} is beyond the number of files (${#files[@]}). Exiting."
+    exit 0
 fi
 
-DATA_DIR="$1"
+file="${files[$SLURM_ARRAY_TASK_ID]}"
+filename=$(basename "$file")
 
-find "$DATA_DIR" -type f \( -name 'RS_*.jsonl' -o -name 'RC_*.jsonl' \) | while read -r file; do
-    count=$(wc -l < "$file")
-    echo "$count" > "${file}_linecount"
-    echo "${file}_linecount written with $count lines"
-done
+echo "Processing file: $file"
+# Process the file
+count=$(wc -l < "$file")
+echo "$count" > "${OUTPUT_DIR}/${filename}_linecount"
+echo "Task ${SLURM_ARRAY_TASK_ID}: ${OUTPUT_DIR}/${filename}_linecount written with $count lines"
