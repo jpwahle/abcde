@@ -119,7 +119,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                     continue
                 rec = entry.copy()
                 rec["Author"] = author or ""
-                features = apply_linguistic_features(entry.get("PostText", ""))
+                features = apply_linguistic_features(entry["Tweet"])
                 rec.update(features)
                 # Compute age at post from birthyear mapping (assume birthdate Jan 1)
                 birthyear = _user_birthyear_map.get(author)
