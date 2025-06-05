@@ -3,10 +3,10 @@
 #SBATCH --output=logs/reddit_pipeline.%A_%a.out
 #SBATCH --error=logs/reddit_pipeline.%A_%a.err
 #SBATCH --time=24:00:00
-#SBATCH --mem=8G
+#SBATCH --mem=4G
 #SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
-#SBATCH --array=0-255
+#SBATCH --array=0-127
 
 set -euxo pipefail
 
@@ -14,7 +14,7 @@ INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted
 OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit
 # number of lines per chunk for large JSONL files (0 = process whole file at once)
 CHUNK_SIZE=${CHUNK_SIZE:-100000}
-STAGES="both"
+STAGES="1"
 
 uv run python process_reddit.py \
     --input_dir "$INPUT_DIR" \
