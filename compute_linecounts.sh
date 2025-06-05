@@ -6,13 +6,13 @@
 #SBATCH --mem=1G
 #SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
-#SBATCH --array=0-120   
+#SBATCH --array=0-155   
 
 # Compute line counts for reddit dataset files in parallel using SLURM array.
 # Generates a file with suffix _linecount for each dataset file.
 set -euo pipefail
 
-DATA_DIR="/beegfs/wahle/datasets/reddit-2010-2020/extracted/"
+DATA_DIR="/beegfs/wahle/datasets/reddit-2010-2022/extracted/"
 OUTPUT_DIR="/beegfs/wahle/github/abcde/reddit_linecounts"
 
 mkdir -p "$OUTPUT_DIR"

@@ -11,7 +11,7 @@
 set -euxo pipefail
 
 # sample paths for testing
-INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted/RS_2010-01
+INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2022/extracted/RS_2010-01
 OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit_test
 LINECOUNT_DIR=/beegfs/wahle/github/abcde/reddit_linecounts
 # number of lines per chunk for large JSONL files (0 = process whole file at once)

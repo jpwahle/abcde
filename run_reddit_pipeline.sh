@@ -10,7 +10,7 @@
 
 set -euxo pipefail
 
-INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2020/extracted
+INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2022/extracted
 OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit
 LINECOUNT_DIR=/beegfs/wahle/github/abcde/reddit_linecounts
 # number of lines per chunk for large JSONL files (0 = process whole file at once)
