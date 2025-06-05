@@ -4,9 +4,9 @@
 #SBATCH --error=logs/reddit_pipeline.%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --mem=8G
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
-#SBATCH --array=0-7
+#SBATCH --array=0-255
 
 set -euxo pipefail
 
