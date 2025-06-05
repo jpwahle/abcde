@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=reddit_pipeline
-#SBATCH --output=logs/reddit_pipeline.%j.out
-#SBATCH --error=logs/reddit_pipeline.%j.err
+#SBATCH --output=logs/reddit_pipeline.%A_%a.out
+#SBATCH --error=logs/reddit_pipeline.%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=64
+#SBATCH --nodes=1
+#SBATCH --array=0-7
 
 set -euxo pipefail
 
@@ -19,4 +21,6 @@ uv run python process_reddit.py \
     --output_dir "$OUTPUT_DIR" \
     --workers "$SLURM_CPUS_PER_TASK" \
     --chunk_size "$CHUNK_SIZE" \
-    --stages "$STAGES"
+    --stages "$STAGES" \
+    --task_id "${SLURM_ARRAY_TASK_ID:-0}" \
+    --total_tasks "${SLURM_ARRAY_TASK_COUNT:-1}"
