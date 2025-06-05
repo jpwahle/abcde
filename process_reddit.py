@@ -6,6 +6,7 @@ import os
 import json
 import argparse
 import itertools
+import math
 import pandas as pd
 
 from helpers import (
@@ -24,6 +25,22 @@ from datetime import datetime
 _detector = SelfIdentificationDetector()
 _user_ids = set()
 _user_birthyear_map = {}
+
+
+def count_lines(path: str) -> int:
+    """Return the number of lines in a text file."""
+    count = 0
+    with open(path, "rb") as fh:
+        for buf in iter(lambda: fh.read(1024 * 1024), b""):
+            count += buf.count(b"\n")
+    return count
+
+
+def read_lines_range(path: str, start: int, n: int) -> list[str]:
+    """Read a specific range of lines from a text file."""
+    with open(path, "r", encoding="utf-8") as fh:
+        lines = itertools.islice(fh, start, start + n)
+        return list(lines)
 
 def load_self_identified_users(csv_path: str) -> set:
     """Load user IDs from existing self-identified users CSV file."""
@@ -174,28 +191,43 @@ def main(
             totals[idx] += sz
         return groups, totals
 
-    if total_tasks > 1:
+    line_counts: dict[str, int] = {}
+    total_chunks = 0
+
+    if total_tasks > 1 and chunk_size == 0:
+        # When processing whole files we can simply split the file list between
+        # tasks to minimise duplicate work.  Each task handles a subset of files
+        # exclusively.
         groups, totals = partition_files_by_size(files, total_tasks)
         files = groups[task_id]
         total_size_gb = totals[task_id] / 1024 ** 3
         print(
             f"Task {task_id + 1}/{total_tasks} processing {len(files)} files (~{total_size_gb:.2f} GB)"
         )
-    # helper to split a JSONL file into chunks of lines
-    def read_jsonl_chunks(path: str):
-        """Yield lists of lines from a JSONL file with a fixed chunk size."""
-        with open(path, "r", encoding="utf-8") as fh:
-            for lines in iter(lambda: list(itertools.islice(fh, chunk_size)), []):
-                yield lines
-
+    else:
+        # With chunked processing all tasks share the same list of files but
+        # distribute chunks globally across tasks.
+        for fp in files:
+            n_lines = count_lines(fp)
+            line_counts[fp] = n_lines
+            total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
+        total_size_gb = sum(os.path.getsize(p) for p in files) / 1024 ** 3
+        print(
+            f"Task {task_id + 1}/{total_tasks} processing {total_chunks} chunks from {len(files)} files (~{total_size_gb:.2f} GB)"
+        )
     def generate_tasks(paths: list[str]):
         """Yield (file_path, lines_or_none) pairs assigned to this array task."""
         idx = 0
         for fp in paths:
             if chunk_size and chunk_size > 0:
-                for chunk in read_jsonl_chunks(fp):
+                n_lines = line_counts[fp]
+                n_chunks = math.ceil(n_lines / chunk_size)
+                for chunk_idx in range(n_chunks):
                     if idx % total_tasks == task_id:
-                        yield fp, chunk
+                        start = chunk_idx * chunk_size
+                        count = chunk_size if chunk_idx < n_chunks - 1 else n_lines - start
+                        lines = read_lines_range(fp, start, count)
+                        yield fp, lines
                     idx += 1
             else:
                 if idx % total_tasks == task_id:
