@@ -42,19 +42,20 @@ def read_lines_range(path: str, start: int, n: int) -> list[str]:
         lines = itertools.islice(fh, start, start + n)
         return list(lines)
 
+
 def load_self_identified_users(csv_path: str) -> set:
     """Load user IDs from existing self-identified users CSV file."""
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Self-identified users file not found: {csv_path}")
-    
-    df = pd.read_csv(csv_path, sep='\t')
+
+    df = pd.read_csv(csv_path, sep="\t")
     user_ids = set()
-    
+
     # Handle different possible column names
-    for col in ['author', 'Author', 'userID']:
+    for col in ["author", "Author", "userID"]:
         if col in df.columns:
             user_ids.update(df[col].dropna().astype(str))
-    
+
     return user_ids
 
 
@@ -75,7 +76,11 @@ def process_chunk_stage1(task):
         if not author or author in ("[deleted]", "AutoModerator", "Bot"):
             continue
         results_local.append(
-            {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
+            {
+                "author": author,
+                "self_identification": matches,
+                "post": extract_columns(entry, None),
+            }
         )
     print(
         f"Processed {len(results_local)} posts from {path}. Found {len(results_local)} self-identified users."
@@ -100,7 +105,11 @@ def process_file_stage1(file_path: str) -> list[dict]:
             if not author or author in ("[deleted]", "AutoModerator", "Bot"):
                 continue
             results_local.append(
-                {"author": author, "self_identification": matches, "post": extract_columns(entry, None)}
+                {
+                    "author": author,
+                    "self_identification": matches,
+                    "post": extract_columns(entry, None),
+                }
             )
     return results_local
 
@@ -123,13 +132,10 @@ def process_chunk_stage2(task):
         features = apply_linguistic_features(post["selftext"])
         post.update(features)
         # Compute age at post from birthyear mapping
-        birthyear = _user_birthyear_map.get(author)
-        if birthyear is not None:
-            ts = post.get("created_utc")
-            post_year = datetime.utcfromtimestamp(int(ts)).year
-            post["DMGAgeAtPost"] = post_year - int(birthyear)
-        else:
-            post["DMGAgeAtPost"] = ""
+        birthyear = int(_user_birthyear_map[author])
+        ts = post.get("created_utc")
+        post_year = datetime.utcfromtimestamp(int(ts)).year
+        post["DMGAgeAtPost"] = post_year - birthyear
         results_local.append(post)
     print(f"Processed {len(results_local)} posts from {path}")
     return results_local
@@ -153,16 +159,10 @@ def process_file_stage2(file_path) -> list[dict]:
             features = apply_linguistic_features(post["selftext"])
             post.update(features)
             # Compute age at post from birthyear mapping
-            birthyear = _user_birthyear_map.get(author)
-            if birthyear is not None:
-                ts = post.get("created_utc")
-                try:
-                    post_year = datetime.utcfromtimestamp(int(ts)).year
-                    post["DMGAgeAtPost"] = post_year - int(birthyear)
-                except Exception:
-                    post["DMGAgeAtPost"] = ""
-            else:
-                post["DMGAgeAtPost"] = ""
+            birthyear = int(_user_birthyear_map[author])
+            ts = post.get("created_utc")
+            post_year = datetime.utcfromtimestamp(int(ts)).year
+            post["DMGAgeAtPost"] = post_year - birthyear
             results_local.append(post)
     return results_local
 
@@ -181,7 +181,9 @@ def main(
 
     files = get_all_jsonl_files(input_dir)
 
-    def partition_files_by_size(paths: list[str], n: int) -> tuple[list[list[str]], list[int]]:
+    def partition_files_by_size(
+        paths: list[str], n: int
+    ) -> tuple[list[list[str]], list[int]]:
         sizes = [(p, os.path.getsize(p)) for p in paths]
         sizes.sort(key=lambda x: x[1], reverse=True)
         groups = [[] for _ in range(n)]
@@ -201,7 +203,7 @@ def main(
         # exclusively.
         groups, totals = partition_files_by_size(files, total_tasks)
         files = groups[task_id]
-        total_size_gb = totals[task_id] / 1024 ** 3
+        total_size_gb = totals[task_id] / 1024**3
         print(
             f"Task {task_id + 1}/{total_tasks} processing {len(files)} files (~{total_size_gb:.2f} GB)"
         )
@@ -212,20 +214,23 @@ def main(
             if linecount_dir:
                 filename = os.path.basename(fp)
                 lc_path = os.path.join(linecount_dir, f"{filename}_linecount")
-            if os.path.exists(lc_path):
-                try:
-                    with open(lc_path, "r") as lc_f:
-                        n_lines = int(lc_f.read().strip())
-                except Exception:
+                if os.path.exists(lc_path):
+                    try:
+                        with open(lc_path, "r") as lc_f:
+                            n_lines = int(lc_f.read().strip())
+                    except Exception:
+                        n_lines = count_lines(fp)
+                else:
                     n_lines = count_lines(fp)
             else:
                 n_lines = count_lines(fp)
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
-        total_size_gb = sum(os.path.getsize(p) for p in files) / 1024 ** 3
+        total_size_gb = sum(os.path.getsize(p) for p in files) / 1024**3
         print(
             f"Task {task_id + 1}/{total_tasks} processing {total_chunks} chunks from {len(files)} files (~{total_size_gb:.2f} GB)"
         )
+
     def generate_tasks(paths: list[str]):
         """Yield (file_path, lines_or_none) pairs assigned to this array task."""
         idx = 0
@@ -236,7 +241,9 @@ def main(
                 for chunk_idx in range(n_chunks):
                     if idx % total_tasks == task_id:
                         start = chunk_idx * chunk_size
-                        count = chunk_size if chunk_idx < n_chunks - 1 else n_lines - start
+                        count = (
+                            chunk_size if chunk_idx < n_chunks - 1 else n_lines - start
+                        )
                         lines = read_lines_range(fp, start, count)
                         yield fp, lines
                     idx += 1
@@ -271,7 +278,7 @@ def main(
     # Stage 2: Collect posts by self-identified users and compute features
     if stages in ["2", "both"]:
         print("Stage 2: Collect posts from self-identified users and compute features")
-        
+
         global _user_ids
         # If we didn't run stage 1, or to load birthyear mapping, load user IDs and birthyear info
         self_users_file = os.path.join(output_dir, "reddit_users.tsv")
@@ -284,10 +291,12 @@ def main(
             _user_ids = set(self_user_ids)
 
         # Load DMG birthyear mapping for age-at-post computation
-        df_users = pd.read_csv(self_users_file, sep='\t')
-        
+        df_users = pd.read_csv(self_users_file, sep="\t")
+
         global _user_birthyear_map
-        _user_birthyear_map = df_users.set_index('Author')['DMGMajorityBirthyear'].to_dict()
+        _user_birthyear_map = df_users.set_index("Author")[
+            "DMGMajorityBirthyear"
+        ].to_dict()
 
         posts_path = os.path.join(output_dir, "reddit_users_posts.tsv")
         total_posts = 0
@@ -328,12 +337,30 @@ if __name__ == "__main__":
         default=0,
         help="Split large JSONL files into chunks of this many lines",
     )
-    parser.add_argument("--stages", choices=["1", "2", "both"], default="both",
-        help="Which stages to run: 1 for self-identification detection only, 2 for post collection only, both for complete pipeline")
-    parser.add_argument("--task_id", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_ID", 0)), help="Task index when running as SLURM array")
-    parser.add_argument("--total_tasks", type=int, default=int(os.environ.get("SLURM_ARRAY_TASK_COUNT", 1)), help="Total number of tasks in the SLURM array")
-    parser.add_argument("--linecount_dir", type=str, help="Directory containing precomputed linecount files (filename_linecount format)")
-    
+    parser.add_argument(
+        "--stages",
+        choices=["1", "2", "both"],
+        default="both",
+        help="Which stages to run: 1 for self-identification detection only, 2 for post collection only, both for complete pipeline",
+    )
+    parser.add_argument(
+        "--task_id",
+        type=int,
+        default=int(os.environ.get("SLURM_ARRAY_TASK_ID", 0)),
+        help="Task index when running as SLURM array",
+    )
+    parser.add_argument(
+        "--total_tasks",
+        type=int,
+        default=int(os.environ.get("SLURM_ARRAY_TASK_COUNT", 1)),
+        help="Total number of tasks in the SLURM array",
+    )
+    parser.add_argument(
+        "--linecount_dir",
+        type=str,
+        help="Directory containing precomputed linecount files (filename_linecount format)",
+    )
+
     args = parser.parse_args()
     main(
         args.input_dir,

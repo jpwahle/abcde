@@ -21,43 +21,44 @@ import pandas as pd
 # Date Parsing Helpers
 # -------------------- #
 
+
 def parse_tusc_created_at_year(created_at: str) -> Optional[int]:
     """Parse TUSC createdAt field and extract year from either format:
     - "Wed Apr 01 14:35:59 +0000 2020"
     - "2015-04-10T02:47:38.000Z"
-    
+
     Returns None if parsing fails.
     """
     if not isinstance(created_at, str) or not created_at.strip():
         return None
-    
+
     created_at = created_at.strip()
-    
+
     # Try format 1: "Wed Apr 01 14:35:59 +0000 2020"
     try:
         dt = datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
         return dt.year
     except (ValueError, TypeError):
         pass
-    
+
     # Try format 2: "2015-04-10T02:47:38.000Z"
     try:
         # Handle both with and without milliseconds
-        if created_at.endswith('Z'):
-            if '.' in created_at:
+        if created_at.endswith("Z"):
+            if "." in created_at:
                 dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%fZ")
             else:
                 dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ")
         else:
             # Handle ISO format without Z
-            if '.' in created_at:
+            if "." in created_at:
                 dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S.%f")
             else:
                 dt = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%S")
         return dt.year
     except (ValueError, TypeError):
         pass
-    
+
     return None
 
 
@@ -65,12 +66,14 @@ def parse_tusc_created_at_year(created_at: str) -> Optional[int]:
 # Self-Identification Detection
 # -------------------- #
 
+
 class SelfIdentificationDetector:
     """Detect self-identification statements (age, etc.) inside free text.
 
     The detector is data-source agnostic – it expects plain strings and can be
     reused for Reddit, Twitter, blogs, or any other textual resource.
     """
+
     def __init__(self) -> None:
         self.patterns: Dict[str, List[Pattern[str]]] = {
             "age": [
@@ -78,7 +81,7 @@ class SelfIdentificationDetector:
                 re.compile(
                     r"\bI(?:\s+am|'m)\s+([1-9]\d?)(?=\s*(?:years?(?:\s+old|-old)?|yo|yrs?)?\b)"
                     r"(?!\s*[%$°#@&*+=<>()[\]{}|\\~`^_])",
-                    re.I | re.VERBOSE
+                    re.I | re.VERBOSE,
                 ),
                 re.compile(
                     r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+(19\d{2}|20(?:0\d|1\d|2[0-4]|25))\b",
@@ -115,7 +118,6 @@ class SelfIdentificationDetector:
                         uniq.append(cm)
                 matches[category] = uniq
         return matches
-
 
     def resolve_multiple_ages(
         self,
@@ -175,16 +177,19 @@ def detect_self_identification_in_entry(
     combined = f"{title} {body}".strip()
     return detector.detect(combined)
 
-def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector: "SelfIdentificationDetector") -> Dict[str, Any]:
+
+def detect_self_identification_with_resolved_age(
+    entry: Dict[str, Any], detector: "SelfIdentificationDetector"
+) -> Dict[str, Any]:
     """Detect self identification with age resolution for multiple age extractions.
-    
+
     Parameters
     ----------
     entry : Dict[str, Any]
         Reddit-style entry with title and body
     detector : SelfIdentificationDetector
         Detector instance
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -195,7 +200,7 @@ def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector
         }
     """
     matches = detect_self_identification_in_entry(entry, detector)
-    
+
     # If age matches found, resolve them
     if "age" in matches:
         # Extract post year for age resolution
@@ -208,24 +213,28 @@ def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector
             ref_year = parse_tusc_created_at_year(entry.get("createdAt", ""))
         else:  # Reddit data
             try:
-                ts = entry.get("created_utc") or entry.get("post", {}).get("created_utc")
+                ts = entry.get("created_utc") or entry.get("post", {}).get(
+                    "created_utc"
+                )
                 ref_year = datetime.utcfromtimestamp(int(ts)).year
             except Exception:
                 ref_year = None
-        
+
         # Fallback to current year if we couldn't extract a valid year
         if ref_year is None:
             ref_year = datetime.now().year
-        
-        age_resolution = detector.resolve_multiple_ages(matches["age"], current_year=ref_year)
+
+        age_resolution = detector.resolve_multiple_ages(
+            matches["age"], current_year=ref_year
+        )
         if age_resolution is not None:
             resolved_age, confidence = age_resolution
             matches["resolved_age"] = {
                 "age": resolved_age,
                 "confidence": confidence,
-                "raw_matches": matches["age"].copy()
+                "raw_matches": matches["age"].copy(),
             }
-    
+
     return matches
 
 
@@ -235,10 +244,12 @@ def detect_self_identification_with_resolved_age(entry: Dict[str, Any], detector
 
 _DATA_DIR = Path("data")
 
+
 def _safe_read(path: Path) -> List[str]:
     if not path.exists():
         raise FileNotFoundError(f"Lexicon file not found: {path}")
     return path.read_text(encoding="utf-8").splitlines()
+
 
 def _load_lexicon(
     filename: str,
@@ -256,6 +267,7 @@ def _load_lexicon(
     result: Any
     if value_type in ("set", "list") and accumulate:
         from collections import defaultdict
+
         if value_type == "set":
             result = defaultdict(set)
         else:
@@ -288,17 +300,24 @@ def _load_lexicon(
         result[key] = val
     return result
 
+
 def _load_nrc_vad_lexicon() -> Dict[str, Dict[str, float]]:
     vad_dict: Dict[str, Dict[str, float]] = {}
     for line in _safe_read(_DATA_DIR / "NRC-VAD-Lexicon.txt"):
         if not line or "\t" not in line:
             continue
         w, v, a, d = line.split("\t")
-        vad_dict[w.lower()] = {"valence": float(v), "arousal": float(a), "dominance": float(d)}
+        vad_dict[w.lower()] = {
+            "valence": float(v),
+            "arousal": float(a),
+            "dominance": float(d),
+        }
     return vad_dict
+
 
 def _load_nrc_emotion_lexicon() -> Dict[str, set]:
     from collections import defaultdict
+
     em: Dict[str, set] = defaultdict(set)
     for line in _safe_read(_DATA_DIR / "NRC-Emotion-Lexicon.txt"):
         if not line or "\t" not in line:
@@ -308,22 +327,40 @@ def _load_nrc_emotion_lexicon() -> Dict[str, set]:
             em[w.lower()].add(emo)
     return em
 
+
 def _load_nrc_worrywords_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-WorryWords-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-WorryWords-Lexicon.txt", skip_header=True, value_type="int"
+    )
+
 
 def _load_eng_tenses_lexicon() -> Dict[str, List[str]]:
     return _load_lexicon(
-        "eng-word-tenses.txt", key_col=1, value_col=2, value_type="list", accumulate=True
+        "eng-word-tenses.txt",
+        key_col=1,
+        value_col=2,
+        value_type="list",
+        accumulate=True,
     )
 
+
 def _load_nrc_moraltrust_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-MoralTrustworthy-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-MoralTrustworthy-Lexicon.txt", skip_header=True, value_type="int"
+    )
+
 
 def _load_nrc_socialwarmth_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-SocialWarmth-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-SocialWarmth-Lexicon.txt", skip_header=True, value_type="int"
+    )
+
 
 def _load_nrc_warmth_lexicon() -> Dict[str, int]:
-    return _load_lexicon("NRC-CombinedWarmth-Lexicon.txt", skip_header=True, value_type="int")
+    return _load_lexicon(
+        "NRC-CombinedWarmth-Lexicon.txt", skip_header=True, value_type="int"
+    )
+
 
 vad_dict = _load_nrc_vad_lexicon()
 emotion_dict = _load_nrc_emotion_lexicon()
@@ -333,9 +370,18 @@ socialwarmth_dict = _load_nrc_socialwarmth_lexicon()
 warmth_dict = _load_nrc_warmth_lexicon()
 tense_dict = _load_eng_tenses_lexicon()
 emotions = [
-    "anger", "anticipation", "disgust", "fear", "joy",
-    "negative", "positive", "sadness", "surprise", "trust",
+    "anger",
+    "anticipation",
+    "disgust",
+    "fear",
+    "joy",
+    "negative",
+    "positive",
+    "sadness",
+    "surprise",
+    "trust",
 ]
+
 
 def compute_vad_and_emotions(
     text: str,
@@ -370,102 +416,193 @@ def compute_vad_and_emotions(
                 sc = vad_dict[w][dim]
                 vad_scores[dim].append(sc)
                 if sc > 0.67:
-                    high_flags[dim] = 1; high_counts[dim] += 1
+                    high_flags[dim] = 1
+                    high_counts[dim] += 1
                 if sc < 0.33:
-                    low_flags[dim] = 1; low_counts[dim] += 1
+                    low_flags[dim] = 1
+                    low_counts[dim] += 1
         if w in emotion_dict:
             for emo in emotion_dict[w]:
-                emotion_flags[emo] = 1; emotion_counts[emo] += 1
+                emotion_flags[emo] = 1
+                emotion_counts[emo] += 1
         if worry_dict and w in worry_dict:
             oc = worry_dict[w]
             if oc > 0:
-                has_anx = 1; sum_anx += oc; count_anx += 1
-                if oc == 3: has_hi_anx = 1; hi_anx_count += 1
+                has_anx = 1
+                sum_anx += oc
+                count_anx += 1
+                if oc == 3:
+                    has_hi_anx = 1
+                    hi_anx_count += 1
             elif oc < 0:
-                has_calm = 1; sum_calm += oc; count_calm += 1
-                if oc == -3: has_hi_calm = 1; hi_calm_count += 1
+                has_calm = 1
+                sum_calm += oc
+                count_calm += 1
+                if oc == -3:
+                    has_hi_calm = 1
+                    hi_calm_count += 1
         if moraltrust_dict and w in moraltrust_dict:
-            oc = moraltrust_dict[w]; sum_moral += oc; count_moral += 1
-            if oc == 3: has_hi_moral = 1; hi_moral_count += 1
-            if oc == -3: has_lo_moral = 1; lo_moral_count += 1
+            oc = moraltrust_dict[w]
+            sum_moral += oc
+            count_moral += 1
+            if oc == 3:
+                has_hi_moral = 1
+                hi_moral_count += 1
+            if oc == -3:
+                has_lo_moral = 1
+                lo_moral_count += 1
         if socialwarmth_dict and w in socialwarmth_dict:
-            oc = socialwarmth_dict[w]; sum_soc += oc; count_soc += 1
-            if oc == 3: has_hi_soc = 1; hi_soc_count += 1
-            if oc == -3: has_lo_soc = 1; lo_soc_count += 1
+            oc = socialwarmth_dict[w]
+            sum_soc += oc
+            count_soc += 1
+            if oc == 3:
+                has_hi_soc = 1
+                hi_soc_count += 1
+            if oc == -3:
+                has_lo_soc = 1
+                lo_soc_count += 1
         if warmth_dict and w in warmth_dict:
-            oc = warmth_dict[w]; sum_warm += oc; count_warm += 1
-            if oc == 3: has_hi_warm = 1; hi_warm_count += 1
-            if oc == -3: has_lo_warm = 1; lo_warm_count += 1
-    avg_vad = {f"NRCAvg{dim.capitalize()}": sum(vals)/len(vals) if vals else 0 for dim, vals in vad_scores.items()}
-    emo_cols = {f"NRCHas{emo.capitalize()}Word": flag for emo, flag in emotion_flags.items()}
-    emo_cnt_cols = {f"NRCCount{emo.capitalize()}Words": cnt for emo, cnt in emotion_counts.items()}
-    vad_thr = {f"NRCHasHigh{dim.capitalize()}Word": high_flags[dim] for dim in high_flags}
-    vad_thr.update({f"NRCHasLow{dim.capitalize()}Word": low_flags[dim] for dim in low_flags})
-    vad_cnt = {f"NRCCountHigh{dim.capitalize()}Words": high_counts[dim] for dim in high_counts}
-    vad_cnt.update({f"NRCCountLow{dim.capitalize()}Words": low_counts[dim] for dim in low_counts})
-    word_count = {"WordCount": len(words)}
-    avg_anx = sum_anx/count_anx if count_anx else 0
-    avg_calm = sum_calm/count_calm if count_calm else 0
-    worry_cols = {
-        "NRCHasAnxietyWord": has_anx, "NRCHasCalmnessWord": has_calm,
-        "NRCAvgAnxiety": avg_anx, "NRCAvgCalmness": avg_calm,
-        "NRCHasHighAnxietyWord": has_hi_anx, "NRCCountHighAnxietyWords": hi_anx_count,
-        "NRCHasHighCalmnessWord": has_hi_calm, "NRCCountHighCalmnessWords": hi_calm_count,
+            oc = warmth_dict[w]
+            sum_warm += oc
+            count_warm += 1
+            if oc == 3:
+                has_hi_warm = 1
+                hi_warm_count += 1
+            if oc == -3:
+                has_lo_warm = 1
+                lo_warm_count += 1
+    avg_vad = {
+        f"NRCAvg{dim.capitalize()}": sum(vals) / len(vals) if vals else 0
+        for dim, vals in vad_scores.items()
     }
-    avg_moral = sum_moral/count_moral if count_moral else 0
+    emo_cols = {
+        f"NRCHas{emo.capitalize()}Word": flag for emo, flag in emotion_flags.items()
+    }
+    emo_cnt_cols = {
+        f"NRCCount{emo.capitalize()}Words": cnt for emo, cnt in emotion_counts.items()
+    }
+    vad_thr = {
+        f"NRCHasHigh{dim.capitalize()}Word": high_flags[dim] for dim in high_flags
+    }
+    vad_thr.update(
+        {f"NRCHasLow{dim.capitalize()}Word": low_flags[dim] for dim in low_flags}
+    )
+    vad_cnt = {
+        f"NRCCountHigh{dim.capitalize()}Words": high_counts[dim] for dim in high_counts
+    }
+    vad_cnt.update(
+        {f"NRCCountLow{dim.capitalize()}Words": low_counts[dim] for dim in low_counts}
+    )
+    word_count = {"WordCount": len(words)}
+    avg_anx = sum_anx / count_anx if count_anx else 0
+    avg_calm = sum_calm / count_calm if count_calm else 0
+    worry_cols = {
+        "NRCHasAnxietyWord": has_anx,
+        "NRCHasCalmnessWord": has_calm,
+        "NRCAvgAnxiety": avg_anx,
+        "NRCAvgCalmness": avg_calm,
+        "NRCHasHighAnxietyWord": has_hi_anx,
+        "NRCCountHighAnxietyWords": hi_anx_count,
+        "NRCHasHighCalmnessWord": has_hi_calm,
+        "NRCCountHighCalmnessWords": hi_calm_count,
+    }
+    avg_moral = sum_moral / count_moral if count_moral else 0
     moral_cols = {
-        "NRCHasHighMoralTrustWord": has_hi_moral, "NRCCountHighMoralTrustWord": hi_moral_count,
-        "NRCHasLowMoralTrustWord": has_lo_moral, "NRCCountLowMoralTrustWord": lo_moral_count,
+        "NRCHasHighMoralTrustWord": has_hi_moral,
+        "NRCCountHighMoralTrustWord": hi_moral_count,
+        "NRCHasLowMoralTrustWord": has_lo_moral,
+        "NRCCountLowMoralTrustWord": lo_moral_count,
         "NRCAvgMoralTrustWord": avg_moral,
     }
-    avg_soc = sum_soc/count_soc if count_soc else 0
+    avg_soc = sum_soc / count_soc if count_soc else 0
     soc_cols = {
-        "NRCHasHighSocialWarmthWord": has_hi_soc, "NRCCountHighSocialWarmthWord": hi_soc_count,
-        "NRCHasLowSocialWarmthWord": has_lo_soc, "NRCCountLowSocialWarmthWord": lo_soc_count,
+        "NRCHasHighSocialWarmthWord": has_hi_soc,
+        "NRCCountHighSocialWarmthWord": hi_soc_count,
+        "NRCHasLowSocialWarmthWord": has_lo_soc,
+        "NRCCountLowSocialWarmthWord": lo_soc_count,
         "NRCAvgSocialWarmthWord": avg_soc,
     }
-    avg_warmth = sum_warm/count_warm if count_warm else 0
+    avg_warmth = sum_warm / count_warm if count_warm else 0
     warm_cols = {
-        "NRCHasHighWarmthWord": has_hi_warm, "NRCCountHighWarmthWord": hi_warm_count,
-        "NRCHasLowWarmthWord": has_lo_warm, "NRCCountLowWarmthWord": lo_warm_count,
+        "NRCHasHighWarmthWord": has_hi_warm,
+        "NRCCountHighWarmthWord": hi_warm_count,
+        "NRCHasLowWarmthWord": has_lo_warm,
+        "NRCCountLowWarmthWord": lo_warm_count,
         "NRCAvgWarmthWord": avg_warmth,
     }
     return {
-        **avg_vad, **vad_thr, **emo_cols, **emo_cnt_cols,
-        **vad_cnt, **word_count, **worry_cols, **moral_cols, **soc_cols, **warm_cols,
+        **avg_vad,
+        **vad_thr,
+        **emo_cols,
+        **emo_cnt_cols,
+        **vad_cnt,
+        **word_count,
+        **worry_cols,
+        **moral_cols,
+        **soc_cols,
+        **warm_cols,
     }
+
 
 def load_body_parts(filepath: str) -> List[str]:
     with open(filepath, "r", encoding="utf-8") as f:
         return [l.strip().lower() for l in f if l.strip()]
 
+
 BODY_PARTS = load_body_parts(_DATA_DIR / "bodywords-full.txt")
 
 
-def compute_prefixed_body_part_mentions(text: str, body_parts: List[str]) -> Dict[str, Any]:
+def compute_prefixed_body_part_mentions(
+    text: str, body_parts: List[str]
+) -> Dict[str, Any]:
     lower = text.lower()
-    prefixes = [("my ","MyBPM"),("your ","YourBPM"),("her ","HerBPM"),("his ","HisBPM"),("their ","TheirBPM")]
+    prefixes = [
+        ("my ", "MyBPM"),
+        ("your ", "YourBPM"),
+        ("her ", "HerBPM"),
+        ("his ", "HisBPM"),
+        ("their ", "TheirBPM"),
+    ]
     res: Dict[str, Any] = {}
-    for pref,label in prefixes:
-        res[label] = ", ".join(p for p in (pref+bp for bp in body_parts) if p in lower)
+    for pref, label in prefixes:
+        res[label] = ", ".join(
+            p for p in (pref + bp for bp in body_parts) if p in lower
+        )
     res["HasBPM"] = any(bp in lower for bp in body_parts)
     return res
 
+
 def compute_individual_pronouns(text: str) -> Dict[str, int]:
     pronouns = {
-        "PRNHasI":["i"],"PRNHasMe":["me"],"PRNHasMy":["my"],"PRNHasMine":["mine"],
-        "PRNHasWe":["we"],"PRNHasOur":["our"],"PRNHasOurs":["ours"],
-        "PRNHasYou":["you"],"PRNHasYour":["your"],"PRNHasYours":["yours"],
-        "PRNHasShe":["she"],"PRNHasHer":["her"],"PRNHasHers":["hers"],
-        "PRNHasHe":["he"],"PRNHasHim":["him"],"PRNHasHis":["his"],
-        "PRNHasThey":["they"],"PRNHasThem":["them"],"PRNHasTheir":["their"],"PRNHasTheirs":["theirs"],
+        "PRNHasI": ["i"],
+        "PRNHasMe": ["me"],
+        "PRNHasMy": ["my"],
+        "PRNHasMine": ["mine"],
+        "PRNHasWe": ["we"],
+        "PRNHasOur": ["our"],
+        "PRNHasOurs": ["ours"],
+        "PRNHasYou": ["you"],
+        "PRNHasYour": ["your"],
+        "PRNHasYours": ["yours"],
+        "PRNHasShe": ["she"],
+        "PRNHasHer": ["her"],
+        "PRNHasHers": ["hers"],
+        "PRNHasHe": ["he"],
+        "PRNHasHim": ["him"],
+        "PRNHasHis": ["his"],
+        "PRNHasThey": ["they"],
+        "PRNHasThem": ["them"],
+        "PRNHasTheir": ["their"],
+        "PRNHasTheirs": ["theirs"],
     }
-    words = set(text.lower().split()) if isinstance(text,str) else set()
-    return {col: int(any(w in words for w in lst)) for col,lst in pronouns.items()}
+    words = set(text.lower().split()) if isinstance(text, str) else set()
+    return {col: int(any(w in words for w in lst)) for col, lst in pronouns.items()}
+
 
 # -------------------- #
 # TUSC-specific Helper
 # -------------------- #
+
 
 def detect_self_identification_in_tusc_entry(
     entry: Dict[str, Any], detector: SelfIdentificationDetector
@@ -476,25 +613,41 @@ def detect_self_identification_in_tusc_entry(
     combined_entry.update({"title": "", "selftext": tweet})
     return detect_self_identification_with_resolved_age(combined_entry, detector)
 
-def apply_linguistic_features(text: str, include_features: bool = True) -> Dict[str, Any]:
+
+def apply_linguistic_features(
+    text: str, include_features: bool = True
+) -> Dict[str, Any]:
     if not include_features:
         return {}
     if not isinstance(text, str) or not text.strip():
-        raise ValueError("Text for linguistic feature extraction must be a non-empty string")
+        raise ValueError(
+            "Text for linguistic feature extraction must be a non-empty string"
+        )
     features = compute_vad_and_emotions(
-        text, vad_dict, emotion_dict, emotions, worry_dict,
-        moraltrust_dict, socialwarmth_dict, warmth_dict
+        text,
+        vad_dict,
+        emotion_dict,
+        emotions,
+        worry_dict,
+        moraltrust_dict,
+        socialwarmth_dict,
+        warmth_dict,
     )
     features.update(compute_individual_pronouns(text))
     features.update(compute_prefixed_body_part_mentions(text, BODY_PARTS))
     return features
 
+
 # -------------------- #
 # Flattening and I/O Utilities
 # -------------------- #
 
+
 def flatten_result_to_csv_row(
-    result: Dict[str, Any], data_source: str, split: Optional[str] = None
+    result: Dict[str, Any],
+    data_source: str,
+    split: Optional[str] = None,
+    stage: Optional[str] = None,
 ) -> Dict[str, Any]:
     row: Dict[str, Any] = {}
     # Author column
@@ -519,7 +672,7 @@ def flatten_result_to_csv_row(
                 ref_year = datetime.utcfromtimestamp(int(ts)).year
             except Exception:
                 ref_year = datetime.now().year
-        
+
         raw_matches: List[str] = []
         majority_birthyear: Optional[int] = None
         if "resolved_age" in self_id:
@@ -573,14 +726,33 @@ def flatten_result_to_csv_row(
         row["PostPlaceID"] = result.get("PlaceID", "")
         row["PostPlaceType"] = result.get("PlaceType", "")
         static_keys = {
-            "TweetID", "Tweet", "createdAt", "Year", "Month", "City", "Country",
-            "MyCountry", "Place", "PlaceID", "PlaceType", "UserID", "userID",
-            "userName", "Author", "DMGAgeAtPost", "DMGMajorityBirthyear",
-            "DMGRawBirthyearExtractions"
+            "TweetID",
+            "Tweet",
+            "createdAt",
+            "Year",
+            "Month",
+            "City",
+            "Country",
+            "MyCountry",
+            "Place",
+            "PlaceID",
+            "PlaceType",
+            "UserID",
+            "userID",
+            "userName",
+            "Author",
+            "DMGAgeAtPost",
+            "DMGMajorityBirthyear",
+            "DMGRawBirthyearExtractions",
         }
-        for key, val in result.items():
-            if key not in static_keys and key not in row:
-                row[key] = val
+        if stage == "posts":
+            for key, val in result.items():
+                if (
+                    key not in static_keys
+                    and key not in row
+                    and key not in {"File", "RowNum", "self_identification"}
+                ):
+                    row[key] = val
     else:
         post = result.get("post", result)
         row["PostID"] = post.get("id", "")
@@ -594,14 +766,28 @@ def flatten_result_to_csv_row(
         row["PostUrl"] = post.get("url", "")
         row["PostMediaPath"] = post.get("media_path", "")
         static_keys = {
-            "id", "subreddit", "title", "selftext", "created_utc",
-            "score", "num_comments", "permalink", "url", "media_path",
-            "author"
+            "id",
+            "subreddit",
+            "title",
+            "selftext",
+            "created_utc",
+            "score",
+            "num_comments",
+            "permalink",
+            "url",
+            "media_path",
+            "author",
         }
-        for key, val in post.items():
-            if key not in static_keys:
-                row[key] = val
+        if stage == "posts":
+            for key, val in post.items():
+                if key not in static_keys and key not in {
+                    "File",
+                    "RowNum",
+                    "self_identification",
+                }:
+                    row[key] = val
     return row
+
 
 def get_csv_fieldnames(
     data_source: str,
@@ -617,21 +803,43 @@ def get_csv_fieldnames(
     else:
         user_cols = ["Author", "DMGAgeAtPost"]
     if data_source == "tusc":
-        base = user_cols + ["PostID", "PostText", "PostCreatedAt", "PostYear", "PostMonth"]
+        base = user_cols + [
+            "PostID",
+            "PostText",
+            "PostCreatedAt",
+            "PostYear",
+            "PostMonth",
+        ]
         if split == "city":
             loc = ["PostCity", "PostPlace", "PostPlaceID", "PostPlaceType"]
         else:
-            loc = ["PostCountry", "PostMyCountry", "PostPlace", "PostPlaceID", "PostPlaceType"]
+            loc = [
+                "PostCountry",
+                "PostMyCountry",
+                "PostPlace",
+                "PostPlaceID",
+                "PostPlaceType",
+            ]
         return base + loc
     # Reddit headers
     base = user_cols + [
-        "PostID", "PostSubreddit", "PostTitle", "PostSelftext", "PostCreatedUtc",
-        "PostScore", "PostNumComments", "PostPermalink", "PostUrl", "PostMediaPath",
+        "PostID",
+        "PostSubreddit",
+        "PostTitle",
+        "PostSelftext",
+        "PostCreatedUtc",
+        "PostScore",
+        "PostNumComments",
+        "PostPermalink",
+        "PostUrl",
+        "PostMediaPath",
     ]
     return base
 
+
 def ensure_output_directory(path: str) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+
 
 def write_results_to_csv(
     results: List[Dict[str, Any]],
@@ -642,30 +850,35 @@ def write_results_to_csv(
 ) -> None:
     sep = "\t" if output_tsv else ","
     ext = "tsv" if output_tsv else "csv"
-    out = output_file.replace('.csv', f'.{ext}') if output_tsv else output_file
+    out = output_file.replace(".csv", f".{ext}") if output_tsv else output_file
     ensure_output_directory(out)
     # Determine whether writing users or posts file based on filename
     fname = os.path.basename(out)
-    stage = 'posts' if 'posts' in fname else 'users'
+    stage = "posts" if "posts" in fname else "users"
     if results:
-        rows = [flatten_result_to_csv_row(r, data_source, split) for r in results]
+        rows = [
+            flatten_result_to_csv_row(r, data_source, split, stage) for r in results
+        ]
         # determine header including any feature columns
         static_fields = get_csv_fieldnames(data_source, split, stage)
-        extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
+        extra_fields = sorted(
+            {k for row in rows for k in row.keys() if k not in static_fields}
+        )
         fieldnames = static_fields + extra_fields
-        with open(out, 'w', encoding='utf-8', newline='') as f:
+        with open(out, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
             writer.writeheader()
             for row in rows:
                 writer.writerow(row)
     else:
-        with open(out, 'w', encoding='utf-8', newline='') as f:
+        with open(out, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(
                 f,
                 fieldnames=get_csv_fieldnames(data_source, split, stage),
-                delimiter=sep
+                delimiter=sep,
             )
             writer.writeheader()
+
 
 def append_results_to_csv(
     results: List[Dict[str, Any]],
@@ -677,33 +890,37 @@ def append_results_to_csv(
     """Append rows to a CSV/TSV while creating the file with a header if needed."""
     sep = "\t" if output_tsv else ","
     ext = "tsv" if output_tsv else "csv"
-    out = output_file.replace('.csv', f'.{ext}') if output_tsv else output_file
+    out = output_file.replace(".csv", f".{ext}") if output_tsv else output_file
     ensure_output_directory(out)
     fname = os.path.basename(out)
-    stage = 'posts' if 'posts' in fname else 'users'
+    stage = "posts" if "posts" in fname else "users"
     if not results:
         return
-    rows = [flatten_result_to_csv_row(r, data_source, split) for r in results]
+    rows = [flatten_result_to_csv_row(r, data_source, split, stage) for r in results]
     if os.path.exists(out) and os.path.getsize(out) > 0:
-        with open(out, 'r', encoding='utf-8') as f:
+        with open(out, "r", encoding="utf-8") as f:
             header = f.readline().strip().split(sep)
         fieldnames = header
         write_header = False
     else:
         static_fields = get_csv_fieldnames(data_source, split, stage)
-        extra_fields = sorted({k for row in rows for k in row.keys() if k not in static_fields})
+        extra_fields = sorted(
+            {k for row in rows for k in row.keys() if k not in static_fields}
+        )
         fieldnames = static_fields + extra_fields
         write_header = True
-    with open(out, 'a', encoding='utf-8', newline='') as f:
+    with open(out, "a", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
         if write_header:
             writer.writeheader()
         for row in rows:
             writer.writerow(row)
 
+
 # -------------------- #
 # JSONL File Handling & Filtering
 # -------------------- #
+
 
 def get_all_jsonl_files(path: str) -> List[str]:
     if os.path.isfile(path):
@@ -711,19 +928,21 @@ def get_all_jsonl_files(path: str) -> List[str]:
     files: List[str] = []
     for root, _, fnames in os.walk(path):
         for nm in fnames:
-            if nm.startswith('RS_'):
+            if nm.startswith("RS_"):
                 files.append(os.path.join(root, nm))
     # Sort by name to ensure consistent order
     files.sort()
     return files
 
+
 def clean_text_newlines(text: str) -> str:
     if not text:
         return text
-    text = re.sub(r'(?<!\s)\n(?!\s)', ' ', text)
-    text = re.sub(r'\n+', ' ', text)
-    text = re.sub(r' +', ' ', text)
+    text = re.sub(r"(?<!\s)\n(?!\s)", " ", text)
+    text = re.sub(r"\n+", " ", text)
+    text = re.sub(r" +", " ", text)
     return text.strip()
+
 
 def filter_entry(
     entry: Dict[str, Any],
@@ -731,36 +950,44 @@ def filter_entry(
     min_words: int,
     max_words: int,
 ) -> bool:
-    if entry.get('over_18', False):
+    if entry.get("over_18", False):
         return False
-    if entry.get('promoted') is True or entry.get('whitelist_status') == 'promo_specified':
+    if (
+        entry.get("promoted") is True
+        or entry.get("whitelist_status") == "promo_specified"
+    ):
         return False
-    text = entry.get('selftext', '')
+    text = entry.get("selftext", "")
     if not text.strip():
         return False
     n = len(text.strip().split())
     if n < min_words or n > max_words:
         return False
-    has_vid = bool(entry.get('is_video', False))
-    url = entry.get('url', '') or ''
-    has_img = any(url.lower().endswith(ext) for ext in ('.jpg','.png','.jpeg','.gif'))
-    if split == 'text' and (has_vid or has_img):
+    has_vid = bool(entry.get("is_video", False))
+    url = entry.get("url", "") or ""
+    has_img = any(
+        url.lower().endswith(ext) for ext in (".jpg", ".png", ".jpeg", ".gif")
+    )
+    if split == "text" and (has_vid or has_img):
         return False
-    if split == 'multimodal' and not (has_vid or has_img):
+    if split == "multimodal" and not (has_vid or has_img):
         return False
     return True
 
-def extract_columns(entry: Dict[str, Any], local_media_path: Optional[str]) -> Dict[str, Any]:
+
+def extract_columns(
+    entry: Dict[str, Any], local_media_path: Optional[str]
+) -> Dict[str, Any]:
     return {
-        'id': entry.get('id'),
-        'subreddit': entry.get('subreddit'),
-        'title': entry.get('title',''),
-        'selftext': clean_text_newlines(entry.get('selftext','')),
-        'created_utc': entry.get('created_utc'),
-        'score': entry.get('score'),
-        'num_comments': entry.get('num_comments'),
-        'author': entry.get('author'),
-        'permalink': entry.get('permalink'),
-        'url': entry.get('url'),
-        'media_path': local_media_path,
+        "id": entry.get("id"),
+        "subreddit": entry.get("subreddit"),
+        "title": entry.get("title", ""),
+        "selftext": clean_text_newlines(entry.get("selftext", "")),
+        "created_utc": entry.get("created_utc"),
+        "score": entry.get("score"),
+        "num_comments": entry.get("num_comments"),
+        "author": entry.get("author"),
+        "permalink": entry.get("permalink"),
+        "url": entry.get("url"),
+        "media_path": local_media_path,
     }
