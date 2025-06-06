@@ -14,7 +14,7 @@ INPUT_DIR=/beegfs/wahle/datasets/reddit-2010-2022/extracted
 OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit
 LINECOUNT_DIR=/beegfs/wahle/github/abcde/reddit_linecounts
 # number of lines per chunk for large JSONL files (0 = process whole file at once)
-CHUNK_SIZE=${CHUNK_SIZE:-100000}
+CHUNK_SIZE=${CHUNK_SIZE:-10000}
 STAGES="1"
 
 uv run python process_reddit.py \
