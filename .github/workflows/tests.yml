@@ -23,5 +23,7 @@ jobs:
         uv sync
         uv add pytest
     - name: Run tests
+      env:
+        PYTHONPATH: ${{ github.workspace }}
       run: |
         uv run pytest -q
