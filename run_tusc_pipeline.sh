@@ -9,7 +9,7 @@ set -euxo pipefail
 
 INPUT_FILE="/beegfs/wahle/datasets/tusc/tusc-city.parquet"
 OUTPUT_DIR="/beegfs/wahle/github/abcde/outputs_tusc"
-STAGES="both"
+STAGES="2"
 
 uv run python process_tusc.py \
     --input_file "$INPUT_FILE" \

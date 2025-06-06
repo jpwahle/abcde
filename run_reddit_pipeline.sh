@@ -17,6 +17,8 @@ LINECOUNT_DIR=/beegfs/wahle/github/abcde/reddit_linecounts
 CHUNK_SIZE=${CHUNK_SIZE:-10000}
 STAGES="1"
 
+export PYTHONUNBUFFERED=1
+
 uv run python process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \

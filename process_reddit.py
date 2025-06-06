@@ -177,6 +177,9 @@ def main(
     total_tasks: int = 1,
     linecount_dir: str = None,
 ) -> None:
+    
+    print(f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory")
+
     ensure_output_directory(os.path.join(output_dir, "_"))
 
     files = get_all_jsonl_files(input_dir)
@@ -218,6 +221,7 @@ def main(
                     try:
                         with open(lc_path, "r") as lc_f:
                             n_lines = int(lc_f.read().strip())
+                            print(f"Linecount file {lc_path} found. {n_lines} lines.")
                     except Exception:
                         print(f"Error reading linecount file {lc_path}. Counting lines for {fp}.")
                         n_lines = count_lines(fp)
