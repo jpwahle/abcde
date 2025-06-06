@@ -1,6 +1,8 @@
 name: Test
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -18,7 +20,7 @@ jobs:
         python-version: '3.10'
     - name: Install dependencies
       run: |
-        uv pip install -e . pytest
+        uv pip install pandas pyarrow tqdm flashtext requests dask-jobqueue 'dask[distributed]' pytest
     - name: Run tests
       run: |
         uv run pytest -q
