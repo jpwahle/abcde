@@ -219,10 +219,13 @@ def main(
                         with open(lc_path, "r") as lc_f:
                             n_lines = int(lc_f.read().strip())
                     except Exception:
+                        print(f"Error reading linecount file {lc_path}. Counting lines for {fp}.")
                         n_lines = count_lines(fp)
                 else:
+                    print(f"Linecount file not found: {lc_path}. Counting lines for {fp}.")
                     n_lines = count_lines(fp)
             else:
+                print(f"No linecount directory provided, counting lines for {fp}")
                 n_lines = count_lines(fp)
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
