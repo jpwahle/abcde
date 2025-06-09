@@ -66,7 +66,7 @@ def load_self_identified_users(csv_path: str) -> set:
 
 
 def process_chunk_stage1(task):
-    path, lines = task
+    path, lines, chunk_idx, total_chunks_for_task = task
     results_local: list[dict] = []
     for line in lines:
         try:
@@ -89,7 +89,7 @@ def process_chunk_stage1(task):
             }
         )
     log_with_timestamp(
-        f"Processed {len(lines)} posts from {path}. Found {len(results_local)} self-identified users."
+        f"Processed chunk {chunk_idx + 1}/{total_chunks_for_task}: {len(lines)} posts from {path}. Found {len(results_local)} self-identified users."
     )
     return results_local
 
@@ -121,7 +121,7 @@ def process_file_stage1(file_path: str) -> list[dict]:
 
 
 def process_chunk_stage2(task):
-    path, lines = task
+    path, lines, chunk_idx, total_chunks_for_task = task
     global _user_birthyear_map
     results_local: list[dict] = []
     for line in lines:
@@ -143,7 +143,7 @@ def process_chunk_stage2(task):
         post_year = datetime.utcfromtimestamp(int(ts)).year
         post["DMGAgeAtPost"] = post_year - birthyear
         results_local.append(post)
-    log_with_timestamp(f"Processed {len(lines)} posts from {path}.")
+    log_with_timestamp(f"Processed chunk {chunk_idx + 1}/{total_chunks_for_task}: {len(lines)} posts from {path}.")
     return results_local
 
 
@@ -247,8 +247,26 @@ def main(
         )
 
     def generate_tasks(paths: list[str]):
-        """Yield (file_path, lines_or_none) pairs assigned to this array task."""
+        """Yield (file_path, lines_or_none, chunk_idx, total_chunks_for_task) pairs assigned to this array task."""
+        # First pass: calculate total chunks this task will process
+        task_chunk_count = 0
         idx = 0
+        for fp in paths:
+            if chunk_size and chunk_size > 0:
+                n_lines = line_counts[fp]
+                n_chunks = math.ceil(n_lines / chunk_size)
+                for chunk_idx in range(n_chunks):
+                    if idx % total_tasks == task_id:
+                        task_chunk_count += 1
+                    idx += 1
+            else:
+                if idx % total_tasks == task_id:
+                    task_chunk_count += 1
+                idx += 1
+        
+        # Second pass: yield tasks with proper indexing
+        idx = 0
+        current_task_chunk = 0
         for fp in paths:
             if chunk_size and chunk_size > 0:
                 n_lines = line_counts[fp]
@@ -260,11 +278,13 @@ def main(
                             chunk_size if chunk_idx < n_chunks - 1 else n_lines - start
                         )
                         lines = read_lines_range(fp, start, count)
-                        yield fp, lines
+                        yield fp, lines, current_task_chunk, task_chunk_count
+                        current_task_chunk += 1
                     idx += 1
             else:
                 if idx % total_tasks == task_id:
-                    yield fp, None
+                    yield fp, None, current_task_chunk, task_chunk_count
+                    current_task_chunk += 1
                 idx += 1
 
     self_user_ids: list[str] = []
@@ -274,11 +294,11 @@ def main(
     if stages in ["1", "both"]:
         log_with_timestamp("Stage 1: Detect self-identified users")
 
-        for fp, lines in generate_tasks(files):
+        for fp, lines, chunk_idx, total_chunks_for_task in generate_tasks(files):
             if lines is None:
                 part = process_file_stage1(fp)
             else:
-                part = process_chunk_stage1((fp, lines))
+                part = process_chunk_stage1((fp, lines, chunk_idx, total_chunks_for_task))
             append_results_to_csv(
                 part,
                 users_path,
@@ -315,11 +335,11 @@ def main(
 
         posts_path = os.path.join(output_dir, "reddit_users_posts.tsv")
         total_posts = 0
-        for fp, lines in generate_tasks(files):
+        for fp, lines, chunk_idx, total_chunks_for_task in generate_tasks(files):
             if lines is None:
                 part = process_file_stage2(fp)
             else:
-                part = process_chunk_stage2((fp, lines))
+                part = process_chunk_stage2((fp, lines, chunk_idx, total_chunks_for_task))
             append_results_to_csv(
                 part,
                 posts_path,
