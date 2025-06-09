@@ -89,7 +89,7 @@ def process_chunk_stage1(task):
             }
         )
     log_with_timestamp(
-        f"Processed {len(results_local)} posts from {path}. Found {len(results_local)} self-identified users."
+        f"Processed {len(lines)} posts from {path}. Found {len(results_local)} self-identified users."
     )
     return results_local
 
@@ -143,7 +143,7 @@ def process_chunk_stage2(task):
         post_year = datetime.utcfromtimestamp(int(ts)).year
         post["DMGAgeAtPost"] = post_year - birthyear
         results_local.append(post)
-    log_with_timestamp(f"Processed {len(results_local)} posts from {path}")
+    log_with_timestamp(f"Processed {len(lines)} posts from {path}.")
     return results_local
 
 
