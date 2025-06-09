@@ -27,6 +27,12 @@ _user_ids = set()
 _user_birthyear_map = {}
 
 
+def log_with_timestamp(message: str) -> None:
+    """Print a message with a timestamp prefix."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")
+
+
 def count_lines(path: str) -> int:
     """Return the number of lines in a text file."""
     count = 0
@@ -82,7 +88,7 @@ def process_chunk_stage1(task):
                 "post": extract_columns(entry, None),
             }
         )
-    print(
+    log_with_timestamp(
         f"Processed {len(results_local)} posts from {path}. Found {len(results_local)} self-identified users."
     )
     return results_local
@@ -137,7 +143,7 @@ def process_chunk_stage2(task):
         post_year = datetime.utcfromtimestamp(int(ts)).year
         post["DMGAgeAtPost"] = post_year - birthyear
         results_local.append(post)
-    print(f"Processed {len(results_local)} posts from {path}")
+    log_with_timestamp(f"Processed {len(results_local)} posts from {path}")
     return results_local
 
 
@@ -178,7 +184,7 @@ def main(
     linecount_dir: str = None,
 ) -> None:
     
-    print(f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory")
+    log_with_timestamp(f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory")
 
     ensure_output_directory(os.path.join(output_dir, "_"))
 
@@ -207,7 +213,7 @@ def main(
         groups, totals = partition_files_by_size(files, total_tasks)
         files = groups[task_id]
         total_size_gb = totals[task_id] / 1024**3
-        print(
+        log_with_timestamp(
             f"Task {task_id + 1}/{total_tasks} processing {len(files)} files (~{total_size_gb:.2f} GB)"
         )
     else:
@@ -221,20 +227,20 @@ def main(
                     try:
                         with open(lc_path, "r") as lc_f:
                             n_lines = int(lc_f.read().strip())
-                            print(f"Linecount file {lc_path} found. {n_lines} lines.")
+                            log_with_timestamp(f"Linecount file {lc_path} found. {n_lines} lines.")
                     except Exception:
-                        print(f"Error reading linecount file {lc_path}. Counting lines for {fp}.")
+                        log_with_timestamp(f"Error reading linecount file {lc_path}. Counting lines for {fp}.")
                         n_lines = count_lines(fp)
                 else:
-                    print(f"Linecount file not found: {lc_path}. Counting lines for {fp}.")
+                    log_with_timestamp(f"Linecount file not found: {lc_path}. Counting lines for {fp}.")
                     n_lines = count_lines(fp)
             else:
-                print(f"No linecount directory provided, counting lines for {fp}")
+                log_with_timestamp(f"No linecount directory provided, counting lines for {fp}")
                 n_lines = count_lines(fp)
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
         total_size_gb = sum(os.path.getsize(p) for p in files) / 1024**3
-        print(
+        log_with_timestamp(
             f"Task {task_id + 1}/{total_tasks} processing {total_chunks} chunks from {len(files)} files (~{total_size_gb:.2f} GB)"
         )
 
@@ -264,7 +270,7 @@ def main(
 
     # Stage 1: Detect self-identified users (by file or by chunk)
     if stages in ["1", "both"]:
-        print("Stage 1: Detect self-identified users")
+        log_with_timestamp("Stage 1: Detect self-identified users")
 
         for fp, lines in generate_tasks(files):
             if lines is None:
@@ -280,18 +286,18 @@ def main(
             )
             self_user_ids.extend([r["author"] for r in part])
 
-        print(f"Task {task_id} found {len(self_user_ids)} self-identified users")
+        log_with_timestamp(f"Task {task_id} found {len(self_user_ids)} self-identified users")
 
     # Stage 2: Collect posts by self-identified users and compute features
     if stages in ["2", "both"]:
-        print("Stage 2: Collect posts from self-identified users and compute features")
+        log_with_timestamp("Stage 2: Collect posts from self-identified users and compute features")
 
         global _user_ids
         # If we didn't run stage 1, or to load birthyear mapping, load user IDs and birthyear info
         self_users_file = os.path.join(output_dir, "reddit_users.tsv")
         if stages == "2":
             _user_ids = load_self_identified_users(self_users_file)
-            print(
+            log_with_timestamp(
                 f"Loaded {len(_user_ids)} self-identified users from {self_users_file}"
             )
         else:
@@ -321,7 +327,7 @@ def main(
             )
             total_posts += len(part)
 
-        print(f"Task {task_id} found {total_posts} posts from self-identified users")
+        log_with_timestamp(f"Task {task_id} found {total_posts} posts from self-identified users")
 
 
 if __name__ == "__main__":
@@ -379,3 +385,5 @@ if __name__ == "__main__":
         args.total_tasks,
         args.linecount_dir,
     )
+
+    log_with_timestamp(f"Done with Reddit pipeline for worker {args.task_id}")
