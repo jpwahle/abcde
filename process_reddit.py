@@ -213,8 +213,9 @@ def main(
         groups, totals = partition_files_by_size(files, total_tasks)
         files = groups[task_id]
         total_size_gb = totals[task_id] / 1024**3
+        total_chunks_per_task = totals[task_id] / total_tasks
         log_with_timestamp(
-            f"Task {task_id + 1}/{total_tasks} processing {len(files)} files (~{total_size_gb:.2f} GB)"
+            f"Task {task_id + 1}/{total_tasks} processing {total_chunks_per_task} chunks from {len(files)} files (~{total_size_gb:.2f} GB)"
         )
     else:
         # With chunked processing all tasks share the same list of files but
@@ -240,8 +241,9 @@ def main(
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
         total_size_gb = sum(os.path.getsize(p) for p in files) / 1024**3
+        total_chunks_per_task = total_chunks / total_tasks
         log_with_timestamp(
-            f"Task {task_id + 1}/{total_tasks} processing {total_chunks} chunks from {len(files)} files (~{total_size_gb:.2f} GB)"
+            f"Task {task_id + 1}/{total_tasks} processing {total_chunks_per_task} chunks from {len(files)} files (~{total_size_gb:.2f} GB)"
         )
 
     def generate_tasks(paths: list[str]):
