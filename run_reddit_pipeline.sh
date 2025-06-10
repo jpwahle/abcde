@@ -3,7 +3,7 @@
 #SBATCH --output=logs/reddit_pipeline.%A_%a.out
 #SBATCH --error=logs/reddit_pipeline.%A_%a.err
 #SBATCH --time=24:00:00
-#SBATCH --mem=4G
+#SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
 #SBATCH --array=0-511
