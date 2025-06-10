@@ -184,6 +184,11 @@ def ensure_indexes_built(files: list[str], task_id: int, output_dir: str, overwr
             filename = os.path.basename(file_path)
             index_path = os.path.join(index_dir, f"{filename}.idx")
             
+            if not overwrite and os.path.exists(index_path):
+                log_with_timestamp(f"Index already exists for file {filename}. Skipping.")
+                status["files"][filename] = "completed"
+                continue
+            
             if not os.path.exists(index_path):
                 try:
                     build_index(file_path, index_path)
@@ -205,7 +210,7 @@ def ensure_indexes_built(files: list[str], task_id: int, output_dir: str, overwr
         # Other tasks wait for indexes to be ready
         log_with_timestamp(f"Task {task_id}: Waiting for indexes to be built by task 0")
         
-        timeout = 7200  # 2 hours timeout
+        timeout = 14400  # 4 hours timeout
         start_time = time.time()
         
         while time.time() - start_time < timeout:
