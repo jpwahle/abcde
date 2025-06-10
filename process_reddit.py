@@ -353,6 +353,11 @@ def main(
 ) -> None:
     
     log_with_timestamp(f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory")
+    
+    if FAST_IO_AVAILABLE:
+        log_with_timestamp("Fast I/O enabled (using numpy and orjson)")
+    else:
+        log_with_timestamp("Fast I/O disabled (install numpy and orjson for better performance)")
 
     ensure_output_directory(os.path.join(output_dir, "_"))
 
@@ -402,13 +407,13 @@ def main(
                             log_with_timestamp(f"Linecount file {lc_path} found. {n_lines} lines.")
                     except Exception:
                         log_with_timestamp(f"Error reading linecount file {lc_path}. Counting lines for {fp}.")
-                        n_lines = count_lines(fp)
+                        n_lines = count_lines(fp, output_dir)
                 else:
                     log_with_timestamp(f"Linecount file not found: {lc_path}. Counting lines for {fp}.")
-                    n_lines = count_lines(fp)
+                    n_lines = count_lines(fp, output_dir)
             else:
                 log_with_timestamp(f"No linecount directory provided, counting lines for {fp}")
-                n_lines = count_lines(fp)
+                n_lines = count_lines(fp, output_dir)
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
         total_size_gb = sum(os.path.getsize(p) for p in files) / 1024**3
@@ -448,7 +453,7 @@ def main(
                         count = (
                             chunk_size if chunk_idx < n_chunks - 1 else n_lines - start
                         )
-                        lines = read_lines_range(fp, start, count)
+                        lines = read_lines_range(fp, start, count, output_dir)
                         yield fp, lines, current_task_chunk, task_chunk_count
                         current_task_chunk += 1
                     idx += 1
