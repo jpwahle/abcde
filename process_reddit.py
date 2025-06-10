@@ -154,7 +154,7 @@ def read_lines_range(path: str, start: int, n: int, output_dir: str = None) -> l
         return list(lines)
 
 
-def ensure_indexes_built(files: list[str], task_id: int, output_dir: str) -> None:
+def ensure_indexes_built(files: list[str], task_id: int, output_dir: str, overwrite: bool = False) -> None:
     """Ensure all files have indexes built. Only task 0 builds them, others wait."""
     if not FAST_IO_AVAILABLE:
         log_with_timestamp("Fast I/O not available, skipping index building")
@@ -166,6 +166,14 @@ def ensure_indexes_built(files: list[str], task_id: int, output_dir: str) -> Non
     # Create a status file to track index building progress
     status_file = os.path.join(index_dir, "index_status.json")
     
+    # If index was built by another task, we can skip building it again
+    if os.path.exists(status_file) and not overwrite:
+        with open(status_file, "r") as f:
+            status = json.load(f)
+        if status.get("completed", False):
+            log_with_timestamp("Index building already completed")
+            return
+
     if task_id == 0:
         # Task 0 builds all indexes
         log_with_timestamp("Task 0: Building indexes for all files")
