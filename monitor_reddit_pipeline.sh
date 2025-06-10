@@ -73,6 +73,8 @@ get_job_id() {
 
 is_task_running() { squeue --job="${1}_${2}" --noheader --format="%T" | grep -q RUNNING; }
 
+is_job_running() { squeue --job="$1" --noheader --format="%T" | grep -qE '(PENDING|RUNNING|COMPLETING)'; }
+
 file_mtime()     { [[ -f $1 ]] && stat -c %Y "$1" 2>/dev/null || echo 0; }
 
 cancel_and_requeue() {
@@ -116,10 +118,19 @@ trap 'echo; echo "Monitor stopped."; exit' INT
 while true; do
     [[ -z $JOB_ID ]] && JOB_ID=$(get_job_id "$JOB_NAME")
     if [[ -z $JOB_ID ]]; then
-        echo "$(date): no matching job found → sleeping $CHECK_INTERVAL s"
-    else
-        check_tasks "$JOB_ID"
+        echo "$(date): no matching job found → exiting monitor"
+        break
     fi
+    
+    # Check if the job is still running
+    if ! is_job_running "$JOB_ID"; then
+        echo "$(date): job $JOB_ID is no longer running → exiting monitor"
+        break
+    fi
+    
+    check_tasks "$JOB_ID"
     echo "---- sleep $CHECK_INTERVAL s ----"
     sleep "$CHECK_INTERVAL"
 done
+
+echo "Monitor finished."
