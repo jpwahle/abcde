@@ -2,7 +2,7 @@
 #SBATCH --job-name=reddit_pipeline
 #SBATCH --output=logs/reddit_pipeline.%A_%a.out
 #SBATCH --error=logs/reddit_pipeline.%A_%a.err
-#SBATCH --time=96:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=4G
 #SBATCH --cpus-per-task=1
 #SBATCH --nodes=1
