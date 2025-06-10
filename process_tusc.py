@@ -76,7 +76,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
 
         write_results_to_csv(
             self_results,
-            os.path.join(output_dir, f"{split}_self_users.tsv"),
+            os.path.join(output_dir, f"{split}_users.tsv"),
             output_tsv=True,
             data_source="tusc",
             split=split,
@@ -101,7 +101,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         print("Stage 2: Collect posts from self-identified users and compute features")
 
         # If we didn't run stage 1, load user IDs and birthyear mapping from existing file
-        self_users_file = os.path.join(output_dir, f"{split}_self_users.tsv")
+        self_users_file = os.path.join(output_dir, f"{split}_users.tsv")
         if stages == "2":
             user_ids = load_self_identified_users(self_users_file)
             print(

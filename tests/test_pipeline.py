@@ -77,7 +77,7 @@ def test_tusc_city_pipeline(tmp_path):
         ]
     )
     _assert_cols(
-        out / "city_self_users.tsv",
+        out / "city_users.tsv",
         _expected_users("tusc", "city"),
         check_age=True,
         birth_col="DMGMajorityBirthyear",
@@ -104,7 +104,7 @@ def test_tusc_country_pipeline(tmp_path):
         ]
     )
     _assert_cols(
-        out / "country_self_users.tsv",
+        out / "country_users.tsv",
         _expected_users("tusc", "country"),
         check_age=True,
         birth_col="DMGMajorityBirthyear",
