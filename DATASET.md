@@ -2,6 +2,24 @@
 
 This dataset contains linguistic and demographic information extracted from Reddit posts and Twitter/X posts (via [TUSC](https://aclanthology.org/2022.lrec-1.442.pdf)), focusing on users who self-identify their age in their posts.
 
+## Dataset Statistics
+
+### Users with Self-Identified Age
+
+| Dataset | Time Period | Number of Users |
+|---------|-------------|-----------------|
+| Reddit | 2010-2022 | 2,405,284 |
+| TUSC-city | 2020-2021 | 26,916 |
+| TUSC-country | 2015-2021 | 1,142 |
+
+### Posts from Users with Self-Identified Age
+
+| Dataset | Time Period | Number of Posts |
+|---------|-------------|-----------------|
+| Reddit | 2010-2022 | 36,444,262 |
+| TUSC-city | 2020-2021 | 4,207,298 |
+| TUSC-country | 2015-2021 | 27,940 |
+
 ## Dataset Files
 
 ### Reddit Dataset
@@ -48,37 +66,42 @@ The dataset was constructed using a two-stage pipeline:
 
 ### Regex Patterns Used
 
-The system uses 5 regex patterns to detect age self-identification:
+The system uses 6 regex patterns to detect age self-identification:
 
-1. **Direct age statement**: `\bI(?:\s+am|'m)\s+([1-9]\d?)\s+years?\s+old\b`
+1. **Direct age statement**: `\bI(?:\s+am|'m)\s+(\d{1,2})\s+years?\s+old\b`
    - Example: "I am 25 years old", "I'm 30 year old"
 
-2. **Age with various endings**: `\bI(?:\s+am|'m)\s+([1-9]\d?)(?=\s*(?:years?(?:\s+old|-old)?|yo|yrs?)?\b)(?!\s*[%$°#@&*+=<>()[\]{}|\\~`^_])`
-   - Example: "I am 25", "I'm 30yo", "I am 25yrs"
+2. **Age with contextual boundaries**: `\bI(?:\s+am|'m)\s+(\d{1,2})(?=\s*(?:$|[,.!?;:\-]|(?:and|but|so|yet)\s))`
+   - Example: "I am 25.", "I'm 30, and...", "I am 25 but..."
 
-3. **Birth year**: `\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+(19\d{2}|20(?:0\d|1\d|2[0-4]|25))\b`
-   - Example: "I was born in 1998"
+3. **Birth year (4-digit)**: `\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+(19\d{2}|20(?:0\d|1\d|2[0-4]))\b`
+   - Example: "I was born in 1998", "I am born in 2005"
 
-4. **Birth date**: `\bI\s+was\s+born\s+on\s+\d{1,2}\s+\w+\s+(19\d{2}|20(?:0\d|1\d|2[0-4]|25))\b`
-   - Example: "I was born on 15 March 1998"
+4. **Birth year (2-digit with apostrophe)**: `\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+'(\d{2})\b`
+   - Example: "I was born in '98", "I'm born in '05"
 
-5. **Turning age**: `\bI(?:\s*'m\s*turning|\s+turn(?:ed)?)\s+([1-9]\d?)(?=\s*[.!?;,]|\s*$)(?!\s*[%$°#@&*+=<>()[\]{}|\\~`^_])`
-   - Example: "I'm turning 25", "I turned 30"
+5. **Birth date (full format)**: `\bI\s+was\s+born\s+on\s+(?:\d{1,2}(?:st|nd|rd|th)?\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?(19\d{2}|20(?:0\d|1\d|2[0-4]))\b`
+   - Example: "I was born on 15 March 1998", "I was born on March 15th, 1998"
+
+6. **Birth date (numeric format)**: `\bI\s+was\s+born\s+on\s+\d{1,2}[/\-]\d{1,2}[/\-](19\d{2}|20(?:0\d|1\d|2[0-4]))\b`
+   - Example: "I was born on 03/15/1998", "I was born on 15-03-1998"
 
 ### False Positive Prevention
 - Word boundaries ensure complete word matches
-- Negative lookahead prevents matching numbers with special characters (e.g., "I'm 25%")
-- Year ranges limited to 1900-2025
+- Contextual boundaries for pattern 2 (punctuation or conjunctions)
+- Year ranges limited to 1900-2024
 - Age filtering: only 13-100 years old accepted
 - First-person requirement ("I") ensures self-identification
 
 ### Age Resolution Algorithm
 1. Extract all age/birthyear mentions from text
-2. Convert ages to birth years (current year - age of post)
-3. Cluster similar birth years (within 2 years)
-4. Weight birth years (1.0) higher than ages (0.8)
-5. Select cluster with highest score (weight × count)
-6. Compute weighted average as final birth year
+2. Convert ages to birth years (post year - age)
+3. Filter out ages below 13 during conversion
+4. Cluster similar birth years (within 2 years)
+5. Weight birth years (1.0) higher than ages (0.8)
+6. Select cluster with highest score (weight sum + count × 0.1)
+7. Compute weighted average as final birth year
+8. Calculate resolved age and filter if not between 13-100
 
 ## Lexicons Used
 
