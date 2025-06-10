@@ -16,7 +16,7 @@
 JOB_NAME="reddit_pipeline"   # original name (we’ll truncate internally)
 JOB_ID=""                    # allow passing root job-id directly
 LOG_DIR="logs"
-TIMEOUT_MINUTES=30
+TIMEOUT_MINUTES=120
 CHECK_INTERVAL=300           # seconds   (5 min)
 DRY_RUN=false
 

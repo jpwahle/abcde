@@ -16,14 +16,14 @@ echo "Submitted STAGES=2 job with dependency on $jobid1. Job ID: $jobid2"
 # Submit monitoring job for Stage 1 (starts when Stage 1 starts)
 echo "Submitting monitoring job for STAGES=1..."
 monitor1_jobid=$(sbatch --parsable \
-    monitor_reddit_pipeline.sh --job-name reddit_pipeline --job-id $jobid1 --log-dir logs --timeout 60 --interval 60)
+    monitor_reddit_pipeline.sh --job-name reddit_pipeline --job-id $jobid1 --log-dir logs --timeout 120 --interval 60)
 
 echo "Submitted Stage 1 monitor job with ID: $monitor1_jobid"
 
 # Submit monitoring job for Stage 2 (starts when Stage 2 starts)
 echo "Submitting monitoring job for STAGES=2..."
 monitor2_jobid=$(sbatch --dependency=afterok:$jobid1 --parsable \
-    monitor_reddit_pipeline.sh --job-name reddit_pipeline --job-id $jobid2 --log-dir logs --timeout 60 --interval 60)
+    monitor_reddit_pipeline.sh --job-name reddit_pipeline --job-id $jobid2 --log-dir logs --timeout 120 --interval 60)
 
 echo "Submitted Stage 2 monitor job with ID: $monitor2_jobid"
 
