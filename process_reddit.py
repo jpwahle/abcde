@@ -197,7 +197,7 @@ def ensure_indexes_built(files: list[str], task_id: int, output_dir: str) -> Non
         # Other tasks wait for indexes to be ready
         log_with_timestamp(f"Task {task_id}: Waiting for indexes to be built by task 0")
         
-        timeout = 3600  # 1 hour timeout
+        timeout = 300  # 5 minutes timeout
         start_time = time.time()
         
         while time.time() - start_time < timeout:
