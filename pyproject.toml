@@ -13,7 +13,6 @@ dependencies = [
     "pandas>=2.2.3",
     "pyarrow>=20.0.0",
     "requests>=2.32.3",
-    "sjsonl",
     "spacy>=3.8.7",
     "tqdm>=4.67.1",
 ]
