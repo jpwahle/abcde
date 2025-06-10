@@ -83,7 +83,7 @@ class SelfIdentificationDetector:
                 # Pattern 2: "I am/I'm X" followed by end of string, punctuation, or age-related conjunctions
                 re.compile(
                     r"\bI(?:\s+am|'m)\s+(\d{1,2})"
-                    r"(?=\s*(?:$|[,.!?;:]|(?:and|but|so|yet)\s))",
+                    r"(?=\s*(?:$|[,.!?]|(?:and|but|so|yet)\s))",
                     re.I
                 ),
                 
@@ -155,7 +155,7 @@ class SelfIdentificationDetector:
                 continue
             if 1900 <= age_val <= current_year:
                 birth_year, weight = age_val, 1.0
-            elif 13 < age_val < 100:  # Filter out ages outside 13 < age < 100
+            elif 13 <= age_val <= 99:  # Filter out ages outside 13 <= age <= 99
                 birth_year, weight = current_year - age_val, 0.8
             else:
                 continue
@@ -183,7 +183,7 @@ class SelfIdentificationDetector:
         weighted_year = sum(by * w for by, w in best_cluster) / total_weight
         resolved_age = current_year - int(round(weighted_year))
         confidence = min(1.0, best_score / (len(age_matches) * 1.0))
-        if not (13 < resolved_age < 100):  # Filter out resolved ages outside 13 < age < 100
+        if not (13 <= resolved_age <= 99):  # Filter out resolved ages outside 13 <= age <= 99
             return None
         return resolved_age, confidence
 
@@ -665,7 +665,7 @@ def flatten_result_to_csv_row(
     data_source: str,
     split: Optional[str] = None,
     stage: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     row: Dict[str, Any] = {}
     # Author column
     if data_source == "tusc":
@@ -696,6 +696,9 @@ def flatten_result_to_csv_row(
             raw_matches = list(self_id["resolved_age"].get("raw_matches", []))
             age_val = self_id["resolved_age"].get("age")
             if isinstance(age_val, int):
+                # Stage 1: Check if age is within valid range (13-99)
+                if stage == "users" and not (13 <= age_val <= 99):
+                    return None
                 majority_birthyear = ref_year - age_val
         else:
             raw_matches = list(self_id.get("age", []))
@@ -705,26 +708,43 @@ def flatten_result_to_csv_row(
                 except ValueError:
                     val = None
                 if isinstance(val, int):
-                    if (ref_year - 99) <= val <= (ref_year - 14):  # Birth years for ages 14-99
+                    if (ref_year - 99) <= val <= (ref_year - 13):  # Birth years for ages 13-99
                         majority_birthyear = val
-                    elif 13 < val < 100:  # Use same strict bounds as age resolution
+                        # Stage 1: Check if age is within valid range (13-99)
+                        if stage == "users":
+                            age_at_ref = ref_year - val
+                            if not (13 <= age_at_ref <= 99):
+                                return None
+                    elif 13 <= val <= 99:  # Direct age values within valid range
                         majority_birthyear = ref_year - val
+                        # Stage 1: Check if age is within valid range (13-99)
+                        if stage == "users" and not (13 <= val <= 99):
+                            return None
         raw_birthyears: List[int] = []
         for m in raw_matches:
             try:
                 v = int(m)
             except ValueError:
                 continue
-            if (ref_year - 99) <= v <= (ref_year - 14):  # Birth years for ages 14-99
+            if (ref_year - 99) <= v <= (ref_year - 13):  # Birth years for ages 13-99
                 raw_birthyears.append(v)
-            elif 13 < v < 100:  # Use same strict bounds as age resolution
+            elif 13 <= v <= 99:  # Direct age values within valid range
                 raw_birthyears.append(ref_year - v)
         row["DMGMajorityBirthyear"] = majority_birthyear or ""
         row["DMGRawBirthyearExtractions"] = "|".join(str(x) for x in raw_birthyears)
 
     # Include age at posting if available (stage2)
     if "DMGAgeAtPost" in result:
-        row["DMGAgeAtPost"] = result.get("DMGAgeAtPost", "")
+        age_at_post = result.get("DMGAgeAtPost", "")
+        # Stage 2: Check if age at posting is within valid range (13-99)
+        if stage == "posts" and age_at_post != "":
+            try:
+                age_val = int(age_at_post)
+                if not (13 <= age_val <= 99):
+                    return None
+            except (ValueError, TypeError):
+                return None
+        row["DMGAgeAtPost"] = age_at_post
 
     if data_source == "tusc":
         row["PostID"] = result.get("TweetID", "")
@@ -876,17 +896,30 @@ def write_results_to_csv(
         rows = [
             flatten_result_to_csv_row(r, data_source, split, stage) for r in results
         ]
-        # determine header including any feature columns
-        static_fields = get_csv_fieldnames(data_source, split, stage)
-        extra_fields = sorted(
-            {k for row in rows for k in row.keys() if k not in static_fields}
-        )
-        fieldnames = static_fields + extra_fields
-        with open(out, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
-            writer.writeheader()
-            for row in rows:
-                writer.writerow(row)
+        # Filter out None results (rows that don't meet age criteria)
+        rows = [row for row in rows if row is not None]
+        
+        if rows:  # Only write if we have valid rows after filtering
+            # determine header including any feature columns
+            static_fields = get_csv_fieldnames(data_source, split, stage)
+            extra_fields = sorted(
+                {k for row in rows for k in row.keys() if k not in static_fields}
+            )
+            fieldnames = static_fields + extra_fields
+            with open(out, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=sep)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(row)
+        else:
+            # Write empty file with headers only
+            with open(out, "w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=get_csv_fieldnames(data_source, split, stage),
+                    delimiter=sep,
+                )
+                writer.writeheader()
     else:
         with open(out, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(
@@ -914,6 +947,12 @@ def append_results_to_csv(
     if not results:
         return
     rows = [flatten_result_to_csv_row(r, data_source, split, stage) for r in results]
+    # Filter out None results (rows that don't meet age criteria)
+    rows = [row for row in rows if row is not None]
+    
+    if not rows:  # No valid rows after filtering
+        return
+        
     if os.path.exists(out) and os.path.getsize(out) > 0:
         with open(out, "r", encoding="utf-8") as f:
             header = f.readline().strip().split(sep)
