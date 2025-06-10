@@ -8,9 +8,15 @@ dependencies = [
     "dask-jobqueue>=0.9.0",
     "dask[distributed]>=2025.3.0",
     "flashtext>=2.7",
+    "numpy>=2.2.6",
+    "orjson>=3.10.18",
     "pandas>=2.2.3",
     "pyarrow>=20.0.0",
     "requests>=2.32.3",
+    "sjsonl",
     "spacy>=3.8.7",
     "tqdm>=4.67.1",
 ]
+
+[tool.uv.sources]
+sjsonl = { git = "https://github.com/Justin1904/sjsonl" }
