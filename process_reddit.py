@@ -303,10 +303,13 @@ def process_chunk_stage2(task):
         features = apply_linguistic_features(post["selftext"])
         post.update(features)
         # Compute age at post from birthyear mapping
-        birthyear = int(_user_birthyear_map[author])
-        ts = post.get("created_utc")
-        post_year = datetime.utcfromtimestamp(int(ts)).year
-        post["DMGAgeAtPost"] = post_year - birthyear
+        if author in _user_birthyear_map and pd.notna(_user_birthyear_map[author]):
+            birthyear = int(_user_birthyear_map[author])
+            ts = post.get("created_utc")
+            post_year = datetime.utcfromtimestamp(int(ts)).year
+            post["DMGAgeAtPost"] = post_year - birthyear
+        else:
+            post["DMGAgeAtPost"] = None
         results_local.append(post)
     log_with_timestamp(f"Processed chunk {chunk_idx + 1}/{total_chunks_for_task}: {len(lines)} posts from {path}.")
     return results_local
@@ -512,7 +515,7 @@ def main(
         global _user_birthyear_map
         _user_birthyear_map = df_users.set_index("Author")[
             "DMGMajorityBirthyear"
-        ].to_dict()
+        ].dropna().to_dict()
 
         posts_path = os.path.join(output_dir, "reddit_users_posts.tsv")
         total_posts = 0

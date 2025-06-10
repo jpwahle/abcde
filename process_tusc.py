@@ -139,9 +139,12 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 features = apply_linguistic_features(entry["Tweet"])
                 rec.update(features)
                 # Compute age at post from birthyear mapping (assume birthdate Jan 1)
-                birthyear = int(_user_birthyear_map[author])
-                year = int(rec.get("Year"))
-                rec["DMGAgeAtPost"] = year - birthyear
+                if author in _user_birthyear_map:
+                    birthyear = int(_user_birthyear_map[author])
+                    year = int(rec.get("Year"))
+                    rec["DMGAgeAtPost"] = year - birthyear
+                else:
+                    rec["DMGAgeAtPost"] = None
                 posts_results.append(rec)
 
         write_results_to_csv(
