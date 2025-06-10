@@ -77,25 +77,45 @@ class SelfIdentificationDetector:
     def __init__(self) -> None:
         self.patterns: Dict[str, List[Pattern[str]]] = {
             "age": [
-                re.compile(r"\bI(?:\s+am|'m)\s+([1-9]\d?)\s+years?\s+old\b", re.I),
+                # Pattern 1: "I am/I'm X years old" (explicit age statement)
+                re.compile(r"\bI(?:\s+am|'m)\s+(\d{1,2})\s+years?\s+old\b", re.I),
+                
+                # Pattern 2: "I am/I'm X" followed by end of string, punctuation, or age-related conjunctions
                 re.compile(
-                    r"\bI(?:\s+am|'m)\s+([1-9]\d?)(?=\s*(?:years?(?:\s+old|-old)?|yo|yrs?)?\b)"
-                    r"(?!\s*[%$°#@&*+=<>()[\]{}|\\~`^_])",
-                    re.I | re.VERBOSE,
+                    r"\bI(?:\s+am|'m)\s+(\d{1,2})"
+                    r"(?=\s*(?:$|[,.!?;:\-]|(?:and|but|so|yet)\s))",
+                    re.I
                 ),
+                
+                # Pattern 3: "I was/am born in YYYY" (four-digit year)
                 re.compile(
-                    r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+(19\d{2}|20(?:0\d|1\d|2[0-4]|25))\b",
-                    re.I,
+                    r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+"
+                    r"(19\d{2}|20(?:0\d|1\d|2[0-4]))\b",
+                    re.I
                 ),
+                
+                # Pattern 4: "I was/am born in 'YY" (two-digit year with apostrophe)
                 re.compile(
-                    r"\bI\s+was\s+born\s+on\s+\d{1,2}\s+\w+\s+"
-                    r"(19\d{2}|20(?:0\d|1\d|2[0-4]|25))\b",
-                    re.I,
+                    r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+'(\d{2})\b",
+                    re.I
                 ),
+                
+                # Pattern 5: "I was born on DD Month YYYY" (full date format)
                 re.compile(
-                    r"\bI(?:\s*'m\s*turning|\s+turn(?:ed)?)\s+([1-9]\d?)(?=\s*[.!?;,]|\s*$)"
-                    r"(?!\s*[%$°#@&*+=<>()[\]{}|\\~`^_])",
-                    re.I,
+                    r"\bI\s+was\s+born\s+on\s+"
+                    r"(?:\d{1,2}(?:st|nd|rd|th)?\s+)?"
+                    r"(?:January|February|March|April|May|June|July|August|September|October|November|December|"
+                    r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+"
+                    r"(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?"
+                    r"(19\d{2}|20(?:0\d|1\d|2[0-4]))\b",
+                    re.I
+                ),
+                
+                # Pattern 6: "I was born on MM/DD/YYYY" or similar date formats
+                re.compile(
+                    r"\bI\s+was\s+born\s+on\s+"
+                    r"\d{1,2}[/\-]\d{1,2}[/\-](19\d{2}|20(?:0\d|1\d|2[0-4]))\b",
+                    re.I
                 ),
             ],
         }
@@ -220,13 +240,10 @@ def detect_self_identification_with_resolved_age(
             except Exception:
                 ref_year = None
 
-        # Fallback to current year if we couldn't extract a valid year
-        if ref_year is None:
-            ref_year = datetime.now().year
-
         age_resolution = detector.resolve_multiple_ages(
             matches["age"], current_year=ref_year
         )
+        
         if age_resolution is not None:
             resolved_age, confidence = age_resolution
             matches["resolved_age"] = {
