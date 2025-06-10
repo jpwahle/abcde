@@ -83,7 +83,7 @@ class SelfIdentificationDetector:
                 # Pattern 2: "I am/I'm X" followed by end of string, punctuation, or age-related conjunctions
                 re.compile(
                     r"\bI(?:\s+am|'m)\s+(\d{1,2})"
-                    r"(?=\s*(?:$|[,.!?;:\-]|(?:and|but|so|yet)\s))",
+                    r"(?=\s*(?:$|[,.!?;:]|(?:and|but|so|yet)\s))",
                     re.I
                 ),
                 
@@ -155,7 +155,7 @@ class SelfIdentificationDetector:
                 continue
             if 1900 <= age_val <= current_year:
                 birth_year, weight = age_val, 1.0
-            elif 13 <= age_val <= 100:  # Filter out ages below 13
+            elif 13 < age_val < 100:  # Filter out ages outside 13 < age < 100
                 birth_year, weight = current_year - age_val, 0.8
             else:
                 continue
@@ -183,7 +183,7 @@ class SelfIdentificationDetector:
         weighted_year = sum(by * w for by, w in best_cluster) / total_weight
         resolved_age = current_year - int(round(weighted_year))
         confidence = min(1.0, best_score / (len(age_matches) * 1.0))
-        if not (13 <= resolved_age <= 100):  # Filter out resolved ages below 13
+        if not (13 < resolved_age < 100):  # Filter out resolved ages outside 13 < age < 100
             return None
         return resolved_age, confidence
 
@@ -705,9 +705,9 @@ def flatten_result_to_csv_row(
                 except ValueError:
                     val = None
                 if isinstance(val, int):
-                    if 1900 <= val <= ref_year:
+                    if (ref_year - 99) <= val <= (ref_year - 14):  # Birth years for ages 14-99
                         majority_birthyear = val
-                    elif 1 <= val <= 120:
+                    elif 13 < val < 100:  # Use same strict bounds as age resolution
                         majority_birthyear = ref_year - val
         raw_birthyears: List[int] = []
         for m in raw_matches:
@@ -715,9 +715,9 @@ def flatten_result_to_csv_row(
                 v = int(m)
             except ValueError:
                 continue
-            if 1900 <= v <= ref_year:
+            if (ref_year - 99) <= v <= (ref_year - 14):  # Birth years for ages 14-99
                 raw_birthyears.append(v)
-            elif 1 <= v <= 120:
+            elif 13 < v < 100:  # Use same strict bounds as age resolution
                 raw_birthyears.append(ref_year - v)
         row["DMGMajorityBirthyear"] = majority_birthyear or ""
         row["DMGRawBirthyearExtractions"] = "|".join(str(x) for x in raw_birthyears)
