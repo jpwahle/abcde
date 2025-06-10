@@ -230,22 +230,6 @@ def ensure_indexes_built(files: list[str], task_id: int, output_dir: str, overwr
         log_with_timestamp(f"Task {task_id}: Timeout waiting for indexes. Proceeding without fast I/O.")
 
 
-def load_self_identified_users(csv_path: str) -> set:
-    """Load user IDs from existing self-identified users CSV file."""
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"Self-identified users file not found: {csv_path}")
-
-    df = pd.read_csv(csv_path, sep="\t")
-    user_ids = set()
-
-    # Handle different possible column names
-    for col in ["author", "Author", "userID"]:
-        if col in df.columns:
-            user_ids.update(df[col].dropna().astype(str))
-
-    return user_ids
-
-
 def process_chunk_stage1(task):
     path, lines, chunk_idx, total_chunks_for_task = task
     results_local: list[dict] = []
@@ -507,15 +491,23 @@ def main(
         # If we didn't run stage 1, or to load birthyear mapping, load user IDs and birthyear info
         self_users_file = os.path.join(output_dir, "reddit_users.tsv")
         if stages == "2":
-            _user_ids = load_self_identified_users(self_users_file)
+            # Load the TSV once and use it for both user IDs and birthyear mapping
+            df_users = pd.read_csv(self_users_file, sep="\t")
+            
+            # Extract user IDs from the dataframe (same logic as load_self_identified_users)
+            user_ids = set()
+            for col in ["author", "Author", "userID"]:
+                if col in df_users.columns:
+                    user_ids.update(df_users[col].dropna().astype(str))
+            _user_ids = user_ids
+            
             log_with_timestamp(
                 f"Loaded {len(_user_ids)} self-identified users from {self_users_file}"
             )
         else:
             _user_ids = set(self_user_ids)
-
-        # Load DMG birthyear mapping for age-at-post computation
-        df_users = pd.read_csv(self_users_file, sep="\t")
+            # Still need to load df_users for birthyear mapping
+            df_users = pd.read_csv(self_users_file, sep="\t")
 
         global _user_birthyear_map
         _user_birthyear_map = df_users.set_index("Author")[
