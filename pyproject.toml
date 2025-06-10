@@ -17,6 +17,3 @@ dependencies = [
     "spacy>=3.8.7",
     "tqdm>=4.67.1",
 ]
-
-[tool.uv.sources]
-sjsonl = { git = "https://github.com/Justin1904/sjsonl" }
