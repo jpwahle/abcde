@@ -8,17 +8,17 @@ This dataset contains linguistic and demographic information extracted from Redd
 
 | Dataset | Time Period | Number of Users |
 |---------|-------------|-----------------|
-| Reddit | 2010-2022 | 2,405,284 |
-| TUSC-city | 2020-2021 | 26,916 |
-| TUSC-country | 2015-2021 | 1,142 |
+| Reddit | 2010-2022 | 1,472,787 |
+| TUSC-city | 2020-2021 | 13,220 |
+| TUSC-country | 2015-2021 | 536 |
 
 ### Posts from Users with Self-Identified Age
 
 | Dataset | Time Period | Number of Posts |
 |---------|-------------|-----------------|
-| Reddit | 2010-2022 | 36,444,262 |
-| TUSC-city | 2020-2021 | 4,207,298 |
-| TUSC-country | 2015-2021 | 27,940 |
+| Reddit | 2010-2022 | 37,989,673 |
+| TUSC-city | 2020-2021 | 1,987,993 |
+| TUSC-country | 2015-2021 | 12,324 |
 
 ## Dataset Files
 
