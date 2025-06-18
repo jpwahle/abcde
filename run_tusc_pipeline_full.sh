@@ -14,7 +14,6 @@ INPUT_FILE="/beegfs/wahle/datasets/tusc/tusc-country.parquet"
 jobid2=$(sbatch --parsable run_tusc_pipeline.sh)
 
 echo ""
-ech 
 echo "Full pipeline submitted successfully!"
 echo "============================================"
 echo "Stage 1 Job ID: $jobid1"
