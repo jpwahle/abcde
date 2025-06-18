@@ -1400,6 +1400,31 @@ def detect_self_identification_in_tusc_entry(
     return detect_self_identification_with_resolved_age(combined_entry, detector)
 
 
+def detect_self_identification_in_tusc_entry_with_mappings(
+    entry: Dict[str, Any], detector: SelfIdentificationDetector
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Detect self-identification in TUSC entry with demographic mappings.
+
+    Returns:
+        Tuple of (age_resolved_matches, formatted_demographics)
+    """
+    tweet = entry.get("Tweet", "") or ""
+    # Create combined entry preserving original metadata
+    combined_entry = entry.copy()
+    combined_entry.update({"title": "", "selftext": tweet})
+
+    # Get age-resolved matches
+    age_matches = detect_self_identification_with_resolved_age(combined_entry, detector)
+
+    # Get full demographic detections with mappings
+    demographic_detections = detector.detect_with_mappings(tweet)
+    formatted_demographics = format_demographic_detections_for_output(
+        demographic_detections
+    )
+
+    return age_matches, formatted_demographics
+
+
 def apply_linguistic_features(
     text: str, include_features: bool = True
 ) -> Dict[str, Any]:
@@ -1554,12 +1579,23 @@ def flatten_result_to_csv_row(
             "DMGMajorityBirthyear",
             "DMGRawBirthyearExtractions",
         }
+        # Include demographic fields for both users and posts stages
+        for key, val in result.items():
+            if (
+                key not in static_keys
+                and key not in row
+                and key not in {"File", "RowNum", "self_identification"}
+                and key.startswith("DMG")  # Include all demographic fields
+            ):
+                row[key] = val
+        # Include other dynamic fields only for posts stage
         if stage == "posts":
             for key, val in result.items():
                 if (
                     key not in static_keys
                     and key not in row
                     and key not in {"File", "RowNum", "self_identification"}
+                    and not key.startswith("DMG")  # Non-demographic fields
                 ):
                     row[key] = val
     else:
@@ -1587,6 +1623,16 @@ def flatten_result_to_csv_row(
             "media_path",
             "author",
         }
+        # Include demographic fields for both users and posts stages
+        for key, val in result.items():
+            if (
+                key not in static_keys
+                and key not in row
+                and key not in {"File", "RowNum", "self_identification", "post"}
+                and key.startswith("DMG")  # Include all demographic fields
+            ):
+                row[key] = val
+        # Include other dynamic fields only for posts stage
         if stage == "posts":
             for key, val in post.items():
                 if key not in static_keys and key not in {
@@ -1606,9 +1652,23 @@ def get_csv_fieldnames(
     """
     Get static CSV/TSV header fields based on data source and stage ('users' or 'posts').
     """
-    # User-level headers: DMG birthyear info; for posts only include age at post
+    # User-level headers: DMG birthyear info and all demographic fields; for posts only include age at post
     if stage == "users":
-        user_cols = ["Author", "DMGMajorityBirthyear", "DMGRawBirthyearExtractions"]
+        user_cols = [
+            "Author",
+            "DMGMajorityBirthyear",
+            "DMGRawBirthyearExtractions",
+            "DMGRawExtractedAge",
+            "DMGRawExtractedGender",
+            "DMGRawExtractedCity",
+            "DMGCountryMappedFromExtractedCity",
+            "DMGRawExtractedCountry",
+            "DMGRawExtractedReligion",
+            "DMGMainReligionMappedFromExtractedReligion",
+            "DMGMainCategoryMappedFromExtractedReligion",
+            "DMGRawExtractedOccupation",
+            "DMGSOCTitleMappedFromExtractedOccupation",
+        ]
     else:
         user_cols = ["Author", "DMGAgeAtPost"]
     if data_source == "tusc":

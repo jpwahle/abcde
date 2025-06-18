@@ -34,6 +34,7 @@ from helpers import (
     ensure_output_directory,
     extract_columns,
     filter_entry,
+    format_demographic_detections_for_output,
     get_all_jsonl_files,
 )
 
@@ -260,19 +261,36 @@ def process_chunk_stage1(task):
             continue
         if not filter_entry(entry, split="text", min_words=5, max_words=1000):
             continue
-        matches = detect_self_identification_with_resolved_age(entry, _detector)
-        if not matches:
+
+        # Get age-resolved detection first
+        age_matches = detect_self_identification_with_resolved_age(entry, _detector)
+        if not age_matches:
             continue
+
+        # Get full demographic detections with mappings
+        title = entry.get("title", "")
+        selftext = entry.get("selftext", "")
+        combined_text = f"{title} {selftext}"
+        demographic_detections = _detector.detect_with_mappings(combined_text)
+
+        # Format demographic fields for output
+        formatted_demographics = format_demographic_detections_for_output(
+            demographic_detections
+        )
+
         author = entry.get("author")
         if not author or author in ("[deleted]", "AutoModerator", "Bot"):
             continue
-        results_local.append(
-            {
-                "author": author,
-                "self_identification": matches,
-                "post": extract_columns(entry, None),
-            }
-        )
+
+        # Combine age-resolved data with other demographics
+        result = {
+            "author": author,
+            "self_identification": age_matches,
+            "post": extract_columns(entry, None),
+        }
+        result.update(formatted_demographics)
+        results_local.append(result)
+
     log_with_timestamp(
         f"Processed chunk {chunk_idx + 1}/{total_chunks_for_task}: {len(lines)} posts from {path}. Found {len(results_local)} self-identified users."
     )
@@ -289,19 +307,36 @@ def process_file_stage1(file_path: str) -> list[dict]:
                 continue
             if not filter_entry(entry, split="text", min_words=5, max_words=1000):
                 continue
-            matches = detect_self_identification_with_resolved_age(entry, _detector)
-            if not matches:
+
+            # Get age-resolved detection first
+            age_matches = detect_self_identification_with_resolved_age(entry, _detector)
+            if not age_matches:
                 continue
+
+            # Get full demographic detections with mappings
+            title = entry.get("title", "")
+            selftext = entry.get("selftext", "")
+            combined_text = f"{title} {selftext}"
+            demographic_detections = _detector.detect_with_mappings(combined_text)
+
+            # Format demographic fields for output
+            formatted_demographics = format_demographic_detections_for_output(
+                demographic_detections
+            )
+
             author = entry.get("author")
             if not author or author in ("[deleted]", "AutoModerator", "Bot"):
                 continue
-            results_local.append(
-                {
-                    "author": author,
-                    "self_identification": matches,
-                    "post": extract_columns(entry, None),
-                }
-            )
+
+            # Combine age-resolved data with other demographics
+            result = {
+                "author": author,
+                "self_identification": age_matches,
+                "post": extract_columns(entry, None),
+            }
+            result.update(formatted_demographics)
+            results_local.append(result)
+
     return results_local
 
 

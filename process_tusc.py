@@ -14,6 +14,7 @@ from helpers import (
     SelfIdentificationDetector,
     apply_linguistic_features,
     detect_self_identification_in_tusc_entry,
+    detect_self_identification_in_tusc_entry_with_mappings,
     ensure_output_directory,
     write_results_to_csv,
 )
@@ -67,11 +68,16 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
             df = batch.to_pandas()
             for _, row in df.iterrows():
                 entry = row.to_dict()
-                matches = detect_self_identification_in_tusc_entry(entry, detector)
-                if not matches:
+                age_matches, formatted_demographics = (
+                    detect_self_identification_in_tusc_entry_with_mappings(
+                        entry, detector
+                    )
+                )
+                if not age_matches:
                     continue
                 rec = entry.copy()
-                rec["self_identification"] = matches
+                rec["self_identification"] = age_matches
+                rec.update(formatted_demographics)
                 self_results.append(rec)
 
         write_results_to_csv(
