@@ -1,11 +1,7 @@
-#!/usr/bin/env bash
-#SBATCH --job-name=tusc_pipeline_full
-#SBATCH --output=logs/tusc_pipeline_full.%j.out
-#SBATCH --error=logs/tusc_pipeline_full.%j.err
-#SBATCH --time=24:00:00
-#SBATCH --mem=64GB
+#!/bin/bash
 
-set -euxo pipefail
+# Ensure logs directory exists
+mkdir -p logs
 
 INPUT_FILE="/beegfs/wahle/datasets/tusc/tusc-city.parquet"
 jobid1=$(sbatch --parsable run_tusc_pipeline.sh)
