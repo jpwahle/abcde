@@ -75,31 +75,46 @@ class SelfIdentificationDetector:
     """
 
     def __init__(self) -> None:
+
+        # Build term groups
+        OCCUPATIONS_TERMS_REGEX = build_term_group(occupations_path)
+        GENDERS_TERMS_REGEX = build_term_group(genders_path)
+        COUNTRIES_TERMS_REGEX = build_term_group(countries_path)
+        CITIES_TERMS_REGEX = build_term_group(cities_path)
+        ETHNIC_GROUPS_TERMS_REGEX = build_term_group(ethnic_groups_path)
+        RELIGIONS_ADHERENTS_TERMS_REGEX = build_term_group(religions_path)
+        RELIGIONS_NAMES_TERMS_REGEX = build_term_group(religions_path)
+        PRONOUN_PAIRS_TERMS_REGEX = build_term_group(pronoun_pairs_path)
+
+        # Example of how placeholders would be defined (not part of the PATTERNS_COMBINED dict itself)
+        # OCCUPATIONS_TERMS_REGEX = r"(?:doctor|software\sengineer|teacher)"
+        # GENDERS_TERMS_REGEX = r"(?:man|woman|non-binary|genderfluid)"
+        # PRONOUN_PAIRS_TERMS_REGEX = r"(?:he/him|she/her|they/them)"
+        # COUNTRIES_TERMS_REGEX = r"(?:Canada|United\sStates|Germany)"
+        # NATIONALITIES_TERMS_REGEX = r"(?:Canadian|American|German)"
+        # CITIES_TERMS_REGEX = r"(?:New\sYork|London|Paris)"
+        # ETHNIC_GROUPS_TERMS_REGEX = r"(?:Maori|Kurdish|African\sAmerican|Latino)"
+        # RELIGIONS_ADHERENTS_TERMS_REGEX = r"(?:Christian|Muslim|Buddhist|Atheist)"
+        # RELIGIONS_NAMES_TERMS_REGEX = r"(?:Christianity|Islam|Buddhism)"
+
         self.patterns: Dict[str, List[Pattern[str]]] = {
             "age": [
                 # Pattern 1: "I am/I'm X years old" (explicit age statement)
                 re.compile(r"\bI(?:\s+am|'m)\s+(\d{1,2})\s+years?\s+old\b", re.I),
-                
                 # Pattern 2: "I am/I'm X" followed by end of string, punctuation, or age-related conjunctions
                 re.compile(
                     r"\bI(?:\s+am|'m)\s+(\d{1,2})"
                     r"(?=\s*(?:$|[,.!?]|(?:and|but|so|yet)\s))",
-                    re.I
+                    re.I,
                 ),
-                
                 # Pattern 3: "I was/am born in YYYY" (four-digit year)
                 re.compile(
                     r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+"
                     r"(19\d{2}|20(?:0\d|1\d|2[0-4]))\b",
-                    re.I
+                    re.I,
                 ),
-                
                 # Pattern 4: "I was/am born in 'YY" (two-digit year with apostrophe)
-                re.compile(
-                    r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+'(\d{2})\b",
-                    re.I
-                ),
-                
+                re.compile(r"\bI(?:\s+was|\s+am|'m)\s+born\s+in\s+'(\d{2})\b", re.I),
                 # Pattern 5: "I was born on DD Month YYYY" (full date format)
                 re.compile(
                     r"\bI\s+was\s+born\s+on\s+"
@@ -108,14 +123,13 @@ class SelfIdentificationDetector:
                     r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\s+"
                     r"(?:\d{1,2}(?:st|nd|rd|th)?,?\s+)?"
                     r"(19\d{2}|20(?:0\d|1\d|2[0-4]))\b",
-                    re.I
+                    re.I,
                 ),
-                
                 # Pattern 6: "I was born on MM/DD/YYYY" or similar date formats
                 re.compile(
                     r"\bI\s+was\s+born\s+on\s+"
                     r"\d{1,2}[/\-]\d{1,2}[/\-](19\d{2}|20(?:0\d|1\d|2[0-4]))\b",
-                    re.I
+                    re.I,
                 ),
             ],
         }
@@ -183,7 +197,9 @@ class SelfIdentificationDetector:
         weighted_year = sum(by * w for by, w in best_cluster) / total_weight
         resolved_age = current_year - int(round(weighted_year))
         confidence = min(1.0, best_score / (len(age_matches) * 1.0))
-        if not (13 <= resolved_age <= 99):  # Filter out resolved ages outside 13 <= age <= 99
+        if not (
+            13 <= resolved_age <= 99
+        ):  # Filter out resolved ages outside 13 <= age <= 99
             return None
         return resolved_age, confidence
 
@@ -243,7 +259,7 @@ def detect_self_identification_with_resolved_age(
         age_resolution = detector.resolve_multiple_ages(
             matches["age"], current_year=ref_year
         )
-        
+
         if age_resolution is not None:
             resolved_age, confidence = age_resolution
             matches["resolved_age"] = {
@@ -353,7 +369,7 @@ def _load_nrc_worrywords_lexicon() -> Dict[str, int]:
 
 def _load_eng_tenses_lexicon() -> Dict[str, List[str]]:
     return _load_lexicon(
-        "eng-word-tenses.txt",
+        "TIME-eng-word-tenses.txt",
         key_col=1,
         value_col=2,
         value_type="list",
@@ -566,7 +582,7 @@ def load_body_parts(filepath: str) -> List[str]:
         return [l.strip().lower() for l in f if l.strip()]
 
 
-BODY_PARTS = load_body_parts(_DATA_DIR / "bodywords-full.txt")
+BODY_PARTS = load_body_parts(_DATA_DIR / "BPM-bodywords-full.txt")
 
 
 def compute_prefixed_body_part_mentions(
@@ -616,6 +632,54 @@ def compute_individual_pronouns(text: str) -> Dict[str, int]:
     return {col: int(any(w in words for w in lst)) for col, lst in pronouns.items()}
 
 
+def compute_tense_features(
+    text: str, tense_dict: Dict[str, List[str]]
+) -> Dict[str, int]:
+    """Compute tense-related features from text."""
+    words = text.lower().split() if isinstance(text, str) else []
+
+    # Tense-related features
+    past_count = 0
+    present_count = 0
+    future_modals = {"will", "shall", "should", "going to"}
+    future_modal_count = 0
+
+    for w in words:
+        # Check future modals directly
+        if w in future_modals:
+            future_modal_count += 1
+
+        # Check tense_dict if available
+        if tense_dict and w in tense_dict:
+            for tag in tense_dict[w]:
+                # Check for past tense
+                if "PST" in tag:
+                    past_count += 1
+                # Check for present tense
+                elif "PRS" in tag:
+                    present_count += 1
+
+    # Check for future time reference words
+    future_time_words = {"tomorrow", "next day", "next year", "next month"}
+    joined_text = " ".join(words)
+    has_future_time_reference = any(
+        phrase in joined_text for phrase in future_time_words
+    )
+
+    return {
+        "TIMEHasPastVerb": 1 if past_count > 0 else 0,
+        "TIMECountPastVerbs": past_count,
+        "TIMEHasPresentVerb": 1 if present_count > 0 else 0,
+        "TIMECountPresentVerbs": present_count,
+        "TIMEHasFutureModal": 1 if future_modal_count > 0 else 0,
+        "TIMECountFutureModals": future_modal_count,
+        "TIMEHasPresentNoFuture": (
+            1 if (present_count > 0 and future_modal_count == 0) else 0
+        ),
+        "TIMEHasFutureReference": 1 if has_future_time_reference else 0,
+    }
+
+
 # -------------------- #
 # TUSC-specific Helper
 # -------------------- #
@@ -652,6 +716,7 @@ def apply_linguistic_features(
     )
     features.update(compute_individual_pronouns(text))
     features.update(compute_prefixed_body_part_mentions(text, BODY_PARTS))
+    features.update(compute_tense_features(text, tense_dict))
     return features
 
 
@@ -708,7 +773,9 @@ def flatten_result_to_csv_row(
                 except ValueError:
                     val = None
                 if isinstance(val, int):
-                    if (ref_year - 99) <= val <= (ref_year - 13):  # Birth years for ages 13-99
+                    if (
+                        (ref_year - 99) <= val <= (ref_year - 13)
+                    ):  # Birth years for ages 13-99
                         majority_birthyear = val
                         # Stage 1: Check if age is within valid range (13-99)
                         if stage == "users":
@@ -898,7 +965,7 @@ def write_results_to_csv(
         ]
         # Filter out None results (rows that don't meet age criteria)
         rows = [row for row in rows if row is not None]
-        
+
         if rows:  # Only write if we have valid rows after filtering
             # determine header including any feature columns
             static_fields = get_csv_fieldnames(data_source, split, stage)
@@ -949,10 +1016,10 @@ def append_results_to_csv(
     rows = [flatten_result_to_csv_row(r, data_source, split, stage) for r in results]
     # Filter out None results (rows that don't meet age criteria)
     rows = [row for row in rows if row is not None]
-    
+
     if not rows:  # No valid rows after filtering
         return
-        
+
     if os.path.exists(out) and os.path.getsize(out) > 0:
         with open(out, "r", encoding="utf-8") as f:
             header = f.readline().strip().split(sep)
