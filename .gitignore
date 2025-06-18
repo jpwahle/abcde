@@ -178,3 +178,6 @@ logs/
 
 # Outputs
 outputs_*/
+
+# Mac
+.DS_Store

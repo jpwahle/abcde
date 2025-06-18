@@ -2,21 +2,21 @@
 """
 Process TUSC pipeline: detect self-identified users and collect posts with linguistic features.
 """
-import os
 import argparse
+import os
+from datetime import datetime
 
-import pyarrow.parquet as pq
 import pandas as pd
+import pyarrow.parquet as pq
 from tqdm import tqdm
 
 from helpers import (
-    detect_self_identification_in_tusc_entry,
     SelfIdentificationDetector,
     apply_linguistic_features,
-    write_results_to_csv,
+    detect_self_identification_in_tusc_entry,
     ensure_output_directory,
+    write_results_to_csv,
 )
-from datetime import datetime
 
 
 def determine_split(input_file: str) -> str:
@@ -112,7 +112,10 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         df_users = pd.read_csv(self_users_file, sep="\t")
         _user_birthyear_map = {
             str(k): int(v)
-            for k, v in df_users.set_index("Author")["DMGMajorityBirthyear"].dropna().to_dict().items()
+            for k, v in df_users.set_index("Author")["DMGMajorityBirthyear"]
+            .dropna()
+            .to_dict()
+            .items()
         }
 
         posts_results: list[dict] = []

@@ -6,14 +6,14 @@ flattening results, and simple I/O utilities.
 """
 from __future__ import annotations
 
-import os
-import re
-import json
 import csv
+import json
+import os
 import random
-from typing import Any, Callable, Dict, Generator, List, Optional, Pattern, Tuple
-from pathlib import Path
+import re
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, Generator, List, Optional, Pattern, Tuple
 
 import pandas as pd
 
@@ -76,26 +76,17 @@ class SelfIdentificationDetector:
 
     def __init__(self) -> None:
 
-        # Build term groups
-        OCCUPATIONS_TERMS_REGEX = build_term_group(occupations_path)
-        GENDERS_TERMS_REGEX = build_term_group(genders_path)
-        COUNTRIES_TERMS_REGEX = build_term_group(countries_path)
-        CITIES_TERMS_REGEX = build_term_group(cities_path)
-        ETHNIC_GROUPS_TERMS_REGEX = build_term_group(ethnic_groups_path)
-        RELIGIONS_ADHERENTS_TERMS_REGEX = build_term_group(religions_path)
-        RELIGIONS_NAMES_TERMS_REGEX = build_term_group(religions_path)
-        PRONOUN_PAIRS_TERMS_REGEX = build_term_group(pronoun_pairs_path)
-
-        # Example of how placeholders would be defined (not part of the PATTERNS_COMBINED dict itself)
-        # OCCUPATIONS_TERMS_REGEX = r"(?:doctor|software\sengineer|teacher)"
-        # GENDERS_TERMS_REGEX = r"(?:man|woman|non-binary|genderfluid)"
-        # PRONOUN_PAIRS_TERMS_REGEX = r"(?:he/him|she/her|they/them)"
-        # COUNTRIES_TERMS_REGEX = r"(?:Canada|United\sStates|Germany)"
-        # NATIONALITIES_TERMS_REGEX = r"(?:Canadian|American|German)"
-        # CITIES_TERMS_REGEX = r"(?:New\sYork|London|Paris)"
-        # ETHNIC_GROUPS_TERMS_REGEX = r"(?:Maori|Kurdish|African\sAmerican|Latino)"
-        # RELIGIONS_ADHERENTS_TERMS_REGEX = r"(?:Christian|Muslim|Buddhist|Atheist)"
-        # RELIGIONS_NAMES_TERMS_REGEX = r"(?:Christianity|Islam|Buddhism)"
+        # Build term groups from loaded data
+        # For patterns that capture the term directly, use capturing=True
+        OCCUPATIONS_TERMS_REGEX = build_term_group(dmg_occupations, capturing=True)
+        GENDERS_TERMS_REGEX = build_term_group(dmg_genders, capturing=True)
+        COUNTRIES_TERMS_REGEX = build_term_group(dmg_countries, capturing=True)
+        NATIONALITIES_TERMS_REGEX = build_term_group(dmg_nationalities, capturing=True)
+        CITIES_TERMS_REGEX = build_term_group(dmg_cities, capturing=True)
+        RELIGIONS_ADHERENTS_TERMS_REGEX = build_term_group(
+            dmg_religion_adherents, capturing=True
+        )
+        RELIGIONS_NAMES_TERMS_REGEX = build_term_group(dmg_religions, capturing=True)
 
         self.patterns: Dict[str, List[Pattern[str]]] = {
             "age": [
@@ -132,6 +123,251 @@ class SelfIdentificationDetector:
                     re.I,
                 ),
             ],
+            "occupation": [
+                # Pattern 1 (from L1): "I am/I'm (a/an/the) [Occupation] (at [Company]) (followed by punctuation/conjunction)"
+                # Includes negative lookaheads and specific following context.
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+looking\s+for)\s+(?:a|an|the)?\s+"
+                    + OCCUPATIONS_TERMS_REGEX
+                    + r"(?:\s+at\s+[\w\s.-]+)?(?=\s*(?:$|[,.!?]|\b(?:and|but|so|or|yet|while|when|because)\b))",
+                    re.I,
+                ),
+                # Pattern 2 (Variant of L1P1, inspired by L2P1's simpler \b ending):
+                # Catches cases where L1P1's lookahead is too restrictive (e.g., "I'm a teacher who...").
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+looking\s+for)\s+(?:a|an|the)?\s+"
+                    + OCCUPATIONS_TERMS_REGEX
+                    + r"(?:\s+at\s+[\w\s.-]+)?\b",  # Simpler \b termination
+                    re.I,
+                ),
+                # Pattern 3 (from L1, covers L2P2): "I work as (a/an/the) [Occupation] (at [Company])"
+                # More comprehensive than L2P2 (includes "the", optional company).
+                re.compile(
+                    r"\bI\s+work\s+as\s+(?:a|an|the)?\s+"
+                    + OCCUPATIONS_TERMS_REGEX
+                    + r"(?:\s+at\s+[\w\s.-]+)?\b",
+                    re.I,
+                ),
+                # Pattern 4 (from L1, covers L2P3): "My job/occupation/profession/role is (to be) (a/an/as) [Occupation]"
+                # More comprehensive (includes "role", "to be", "as").
+                re.compile(
+                    r"\bMy\s+(?:job|occupation|profession|role)\s+is\s+(?:to\s+be\s+)?(?:a|an|as)?\s*"
+                    + OCCUPATIONS_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 5 (from L1): "I'm (currently) employed as (a/an/the) [Occupation]"
+                re.compile(
+                    r"\bI'm\s+(?:currently\s+)?employed\s+as\s+(?:a|an|the)?\s+"
+                    + OCCUPATIONS_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+            ],
+            "gender": [
+                # Pattern 1 (from L1): "I am/I'm (a/an) [Gender] (followed by punctuation/conjunction)"
+                # Includes negative lookahead and specific following context.
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not)\s+(?:a|an)?\s+"
+                    + GENDERS_TERMS_REGEX
+                    + r"(?=\s*(?:$|[,.!?]|\b(?:and|but|so|or|yet|because)\b))",
+                    re.I,
+                ),
+                # Pattern 2 (Variant of L1P1, inspired by L2P1's simpler \b ending):
+                # Catches cases where L1P1's lookahead is too restrictive. Covers L2P1.
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not)\s+(?:a|an)?\s+"
+                    + GENDERS_TERMS_REGEX
+                    + r"\b",  # Simpler \b termination
+                    re.I,
+                ),
+                # Pattern 3 (from L1, covers L2P3): "I identify as (a/an) [Gender]"
+                # More comprehensive with optional (a/an).
+                re.compile(
+                    r"\bI\s+identify\s+as\s+(?:a|an)?\s*" + GENDERS_TERMS_REGEX + r"\b",
+                    re.I,
+                ),
+                # Pattern 4 (from L1, covers L2P2): "My gender (identity) is [Gender]"
+                # Identical to L2P2 given re.I.
+                re.compile(
+                    r"\bMy\s+gender(?:\s+identity)?\s+is\s+"
+                    + GENDERS_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 5 (from L1): "I'm/I am (a) (transgender/trans) [Gender like man/woman]"
+                re.compile(
+                    r"\b(?:I'm|I\s+am)\s+(?:a\s+)?(?:transgender|trans)\s+"
+                    + GENDERS_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+            ],
+            "country": [
+                # Pattern 1 (from L1): "I am/I'm from (the) [Country]" (current primary location focus)
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+just\s+visiting|\s+originally)\s+from\s+(?:the\s+)?"
+                    + COUNTRIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 2 (Enhanced L2P1 - simpler version of L1P1 without negative lookaheads but with (the)):
+                re.compile(
+                    r"\bI(?:\s+am|'m)\s+from\s+(?:the\s+)?"
+                    + COUNTRIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 3 (from L1, `an?` corrected): "I am/I'm (a/an/the) [Nationality] (followed by punctuation/conjunction)"
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not)\s+(?:a|an|the)?\s*"
+                    + NATIONALITIES_TERMS_REGEX
+                    + r"(?=\s*(?:$|[,.!?]|\b(?:and|but|so|or|yet|who)\b))",
+                    re.I,
+                ),
+                # Pattern 4 (Variant of L1P3 with `\b` end, covers L2P4 for nationalities):
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not)\s+(?:a|an|the)?\s*"
+                    + NATIONALITIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 5 (Combined L1P3 & L2P3, adding 'at' and '(the)'): "I live in/at (the) [Country]"
+                re.compile(
+                    r"\bI\s+live\s+(?:in|at)\s+(?:the\s+)?"
+                    + COUNTRIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 6 (from L2P2, enhanced with `(?:the\s+)?`): "I come from (the) [Country]"
+                re.compile(
+                    r"\bI\s+come\s+from\s+(?:the\s+)?" + COUNTRIES_TERMS_REGEX + r"\b",
+                    re.I,
+                ),
+                # Pattern 7 (from L1): "My nationality/citizenship is [Nationality]"
+                re.compile(
+                    r"\bMy\s+(?:nationality|citizenship)\s+is\s+"
+                    + NATIONALITIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 8 (from L1): "I was/am born and raised in (the) [Country]"
+                re.compile(
+                    r"\bI(?:\s+was|'m)\s+born\s+and\s+(?:raised|grew\s+up)\s+in\s+(?:the\s+)?"
+                    + COUNTRIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 9 (from L1): "I am/I'm originally from (the) [Country]" (origin focus)
+                re.compile(
+                    r"\bI(?:\s+am|'m)\s+originally\s+from\s+(?:the\s+)?"
+                    + COUNTRIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+            ],
+            "city": [
+                # Pattern 1 (from L1): "I am/I'm from [City] (followed by punctuation/conjunction)"
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+just\s+visiting|\s+originally)\s+from\s+"
+                    + CITIES_TERMS_REGEX
+                    + r"(?=\s*(?:$|[,.!?]|\b(?:and|but|so|or|yet)\b))",
+                    re.I,
+                ),
+                # Pattern 2 (Variant of L1P1, inspired by L2P1's simpler \b ending, covers L2P1):
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+just\s+visiting|\s+originally)\s+from\s+"
+                    + CITIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 3 (Combined L1P2 & L2P2, adding 'at' and explicit \b before FP lookahead): "I live in/at [City]"
+                re.compile(
+                    r"\bI\s+live\s+(?:in|at)\s+"
+                    + CITIES_TERMS_REGEX
+                    + r"\b(?!\s+(?:fear|hope|a\s+state\s+of|sin|poverty|luxury))",
+                    re.I,
+                ),
+                # Pattern 4 (from L1, covers L2P4): "I'm/I am (currently) residing/based in [City]"
+                re.compile(
+                    r"\b(?:I'm\s+|I\s+am\s+)?(?:currently\s+)?(?:residing|based)\s+in\s+"
+                    + CITIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 5 (from L1): "My (current/home) city/town is [City]"
+                re.compile(
+                    r"\bMy\s+(?:current\s+|home\s+)?(?:city|town)\s+is\s+"
+                    + CITIES_TERMS_REGEX
+                    + r"\b",  # Corrected 'home '
+                    re.I,
+                ),
+                # Pattern 6 (from L1, covers L2P3): "I (grew up / was raised) in [City]"
+                re.compile(
+                    r"\bI\s+(?:grew\s+up|was\s+raised)\s+in\s+"
+                    + CITIES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+            ],
+            "religion": [
+                # Pattern 1 (from L1): "I am/I'm (a/an/a devout/a practicing) [Religion Adherent] (followed by context)"
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+sure\s+if\s+I'm)\s+(?:a|an|a\s+devout|a\s+practicing)?\s+"
+                    + RELIGIONS_ADHERENTS_TERMS_REGEX
+                    + r"(?=\s*(?:$|[,.!?]|\b(?:and|but|so|or|yet|who)\b))",
+                    re.I,
+                ),
+                # Pattern 2 (Variant of L1P1 with `\b` end, covers L2P1 for adherents):
+                re.compile(
+                    r"\bI(?:\s+am|'m)(?!\s+not|\s+sure\s+if\s+I'm)\s+(?:a|an|a\s+devout|a\s+practicing)?\s+"
+                    + RELIGIONS_ADHERENTS_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 3 (Combined L1P2 & L2P2, adding 'faith'): "My religion/faith is [Religion Name]"
+                re.compile(
+                    r"\bMy\s+(?:religion|faith)\s+is\s+"
+                    + RELIGIONS_NAMES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 4 (from L1, covers L2P3 for names): "I (actively) practice [Religion Name]"
+                re.compile(
+                    r"\bI\s+(?:actively\s+)?practice\s+"
+                    + RELIGIONS_NAMES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 5 (from L1): "I am/I'm a follower of [Religion Name]"
+                re.compile(
+                    r"\bI(?:\s+am|'m)\s+a\s+follower\s+of\s+"
+                    + RELIGIONS_NAMES_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 6 (from L1): "I converted to [Religion Name]"
+                re.compile(
+                    r"\bI\s+converted\s+to\s+" + RELIGIONS_NAMES_TERMS_REGEX + r"\b",
+                    re.I,
+                ),
+                # Pattern 7 (Combined L1P6 & L2P4, `a(n?)` corrected, adds 'born'): "I was raised/born (as a/an) [Religion Adherent]"
+                re.compile(
+                    r"\bI\s+was\s+(?:raised|born)\s+(?:as\s+(?:a|an))?\s*"
+                    + RELIGIONS_ADHERENTS_TERMS_REGEX
+                    + r"\b",
+                    re.I,
+                ),
+                # Pattern 8 (from L1, covers L2P5 for adherents): "I identify as [Adherent] / identify with [Religion Name]"
+                re.compile(
+                    r"\bI\s+identify\s+(?:as\s+"
+                    + RELIGIONS_ADHERENTS_TERMS_REGEX
+                    + r"|with\s+(?:the\s+)?"
+                    + RELIGIONS_NAMES_TERMS_REGEX
+                    + r")\b",
+                    re.I,
+                ),
+            ],
         }
 
     def detect(self, text: str) -> Dict[str, List[str]]:
@@ -152,6 +388,98 @@ class SelfIdentificationDetector:
                         uniq.append(cm)
                 matches[category] = uniq
         return matches
+
+    def detect_with_mappings(self, text: str) -> Dict[str, Dict[str, List[str]]]:
+        """Return demographic detections with both raw extractions and mapped values.
+
+        Returns a dict with structure:
+        {
+            "city": {
+                "raw": ["austin", "new york"],
+                "country_mapped": ["United States", "United States"]
+            },
+            "religion": {
+                "raw": ["catholic", "buddhist"],
+                "main_religion_mapped": ["Christianity", "Buddhism"],
+                "category_mapped": ["Abrahamic Religions", "Eastern Religions"]
+            },
+            "occupation": {
+                "raw": ["software engineer", "teacher"],
+                "soc_mapped": ["Software Developers", "Elementary School Teachers"]
+            }
+        }
+        """
+        raw_matches = self.detect(text)
+        result = {}
+
+        for category, matches in raw_matches.items():
+            result[category] = {"raw": matches}
+
+            if category == "city":
+                # Map cities to countries
+                country_mapped = []
+                for city in matches:
+                    city_lower = city.lower()
+                    if city_lower in dmg_city_to_country:
+                        country_mapped.append(dmg_city_to_country[city_lower])
+                    else:
+                        country_mapped.append(None)
+                result[category]["country_mapped"] = country_mapped
+
+            elif category == "religion":
+                # Map religions to main religion and category
+                main_religion_mapped = []
+                category_mapped = []
+                for religion in matches:
+                    religion_lower = religion.lower()
+
+                    # Try direct mapping first
+                    if religion_lower in dmg_religion_to_main:
+                        main_religion_mapped.append(
+                            dmg_religion_to_main[religion_lower]
+                        )
+                    # Try adding 'ism' for adherent forms (e.g., Catholic -> Catholicism)
+                    elif religion_lower + "ism" in dmg_religion_to_main:
+                        main_religion_mapped.append(
+                            dmg_religion_to_main[religion_lower + "ism"]
+                        )
+                    # Try adding 'ity' for some forms (e.g., Christian -> Christianity)
+                    elif religion_lower + "ity" in dmg_religion_to_main:
+                        main_religion_mapped.append(
+                            dmg_religion_to_main[religion_lower + "ity"]
+                        )
+                    else:
+                        main_religion_mapped.append(None)
+
+                    # Same logic for category mapping
+                    if religion_lower in dmg_religion_to_category:
+                        category_mapped.append(dmg_religion_to_category[religion_lower])
+                    elif religion_lower + "ism" in dmg_religion_to_category:
+                        category_mapped.append(
+                            dmg_religion_to_category[religion_lower + "ism"]
+                        )
+                    elif religion_lower + "ity" in dmg_religion_to_category:
+                        category_mapped.append(
+                            dmg_religion_to_category[religion_lower + "ity"]
+                        )
+                    else:
+                        category_mapped.append(None)
+
+                result[category]["main_religion_mapped"] = main_religion_mapped
+                result[category]["category_mapped"] = category_mapped
+
+            elif category == "occupation":
+                # Map occupations to SOC titles
+                soc_mapped = []
+                for occupation in matches:
+                    occupation_lower = occupation.lower()
+                    if occupation_lower in dmg_occupation_to_soc:
+                        soc_mapped.append(dmg_occupation_to_soc[occupation_lower])
+                    else:
+                        soc_mapped.append(None)
+                result[category]["soc_mapped"] = soc_mapped
+
+        return result
 
     def resolve_multiple_ages(
         self,
@@ -212,6 +540,72 @@ def detect_self_identification_in_entry(
     body = entry.get("selftext", "") or ""
     combined = f"{title} {body}".strip()
     return detector.detect(combined)
+
+
+def detect_self_identification_with_mappings_in_entry(
+    entry: Dict[str, Any], detector: SelfIdentificationDetector
+) -> Dict[str, Dict[str, List[str]]]:
+    """Detect self-identification with mappings in a Reddit-style entry (title+body).
+
+    Returns both raw extractions and mapped values for city->country,
+    religion->main/category, and occupation->SOC title.
+    """
+    title = entry.get("title", "") or ""
+    body = entry.get("selftext", "") or ""
+    combined = f"{title} {body}".strip()
+    return detector.detect_with_mappings(combined)
+
+
+def format_demographic_detections_for_output(
+    detections: Dict[str, Dict[str, List[str]]],
+) -> Dict[str, Any]:
+    """Format demographic detections with user-specified field names.
+
+    Converts the nested detection structure to flat fields with specific names:
+    - DMGRawExtractedCity, DMGCountryMappedFromExtractedCity
+    - DMGRawExtractedReligion, DMGMainReligionMappedFromExtractedReligion
+    - DMGRawExtractedOccupation, DMGSOCTitleMappedFromExtractedOccupation
+    """
+    output = {}
+
+    # City fields
+    if "city" in detections:
+        city_data = detections["city"]
+        output["DMGRawExtractedCity"] = city_data.get("raw", [])
+        output["DMGCountryMappedFromExtractedCity"] = city_data.get(
+            "country_mapped", []
+        )
+
+    # Religion fields
+    if "religion" in detections:
+        religion_data = detections["religion"]
+        output["DMGRawExtractedReligion"] = religion_data.get("raw", [])
+        output["DMGMainReligionMappedFromExtractedReligion"] = religion_data.get(
+            "main_religion_mapped", []
+        )
+        output["DMGMainCategoryMappedFromExtractedReligion"] = religion_data.get(
+            "category_mapped", []
+        )
+
+    # Occupation fields
+    if "occupation" in detections:
+        occupation_data = detections["occupation"]
+        output["DMGRawExtractedOccupation"] = occupation_data.get("raw", [])
+        output["DMGSOCTitleMappedFromExtractedOccupation"] = occupation_data.get(
+            "soc_mapped", []
+        )
+
+    # Other raw fields (age, gender, country)
+    if "age" in detections:
+        output["DMGRawExtractedAge"] = detections["age"].get("raw", [])
+
+    if "gender" in detections:
+        output["DMGRawExtractedGender"] = detections["gender"].get("raw", [])
+
+    if "country" in detections:
+        output["DMGRawExtractedCountry"] = detections["country"].get("raw", [])
+
+    return output
 
 
 def detect_self_identification_with_resolved_age(
@@ -393,6 +787,317 @@ def _load_nrc_warmth_lexicon() -> Dict[str, int]:
     return _load_lexicon(
         "NRC-CombinedWarmth-Lexicon.txt", skip_header=True, value_type="int"
     )
+
+
+# -------------------- #
+# Demographic Data Loading
+# -------------------- #
+
+
+def _load_dmg_countries() -> List[str]:
+    """Load country names from DMG-country-list.txt."""
+    countries = []
+    for line in _safe_read(_DATA_DIR / "DMG-country-list.txt"):
+        if line:
+            countries.append(line)
+    return countries
+
+
+def _load_dmg_genders() -> List[str]:
+    """Load gender terms from DMG-gender-list.txt."""
+    genders = []
+    for line in _safe_read(_DATA_DIR / "DMG-gender-list.txt"):
+        if line:
+            genders.append(line)
+    return genders
+
+
+def _load_dmg_cities() -> Dict[str, str]:
+    """Load cities from DMG-geonames CSV and create city->country mapping."""
+    city_to_country = {}
+
+    csv_path = _DATA_DIR / "DMG-geonames-all-cities-with-a-population-1000.csv"
+    try:
+        # Read CSV with semicolon separator
+        df = pd.read_csv(csv_path, sep=";", dtype=str, low_memory=False)
+
+        # Sort by population (descending) to prioritize larger cities
+        df["Population"] = pd.to_numeric(df["Population"], errors="coerce").fillna(0)
+        df_sorted = df.sort_values("Population", ascending=False)
+
+        # Create mapping from city name to country
+        for _, row in df_sorted.iterrows():
+            city_name = row.get("Name", "")
+            country_name = row.get("Country name EN", "")
+
+            # Handle potential float/NaN values
+            if pd.isna(city_name) or pd.isna(country_name):
+                continue
+
+            city_name = str(city_name).strip()
+            country_name = str(country_name).strip()
+
+            if city_name and country_name:
+                # Only store if not already present (larger cities take precedence)
+                city_lower = city_name.lower()
+                if city_lower not in city_to_country:
+                    city_to_country[city_lower] = country_name
+
+                # Also store alternate names if available
+                alt_names = row.get("Alternate Names", "")
+                if alt_names and isinstance(alt_names, str) and not pd.isna(alt_names):
+                    for alt_name in alt_names.split(","):
+                        alt_name = alt_name.strip()
+                        if alt_name and alt_name.lower() not in city_to_country:
+                            city_to_country[alt_name.lower()] = country_name
+    except Exception as e:
+        print(f"Error loading city data: {e}")
+
+    return city_to_country
+
+
+def _load_dmg_religions() -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Load religions from DMG-religion-list.csv and create mappings.
+    Returns:
+        - religion_to_main: Maps substrain -> main religion
+        - religion_to_category: Maps substrain -> main category
+    """
+    religion_to_main = {}
+    religion_to_category = {}
+
+    csv_path = _DATA_DIR / "DMG-religion-list.csv"
+    try:
+        df = pd.read_csv(csv_path, dtype=str)
+
+        for _, row in df.iterrows():
+            category = row.get("Main Category", "")
+            main_religion = row.get("Main Religion", "")
+            substrain = row.get("Substrain/Denomination", "") or row.get(
+                "Substrain", ""
+            )
+
+            # Handle potential float/NaN values
+            category = str(category).strip() if pd.notna(category) else ""
+            main_religion = (
+                str(main_religion).strip() if pd.notna(main_religion) else ""
+            )
+            substrain = str(substrain).strip() if pd.notna(substrain) else ""
+
+            if substrain:
+                substrain_lower = substrain.lower()
+                # Map substrain to main religion
+                if main_religion:
+                    religion_to_main[substrain_lower] = main_religion
+                # Map substrain to category
+                if category:
+                    religion_to_category[substrain_lower] = category
+
+            # Also add main religion as a key pointing to itself
+            if main_religion:
+                main_lower = main_religion.lower()
+                religion_to_main[main_lower] = main_religion
+                if category:
+                    religion_to_category[main_lower] = category
+
+    except Exception as e:
+        print(f"Error loading religion data: {e}")
+
+    return religion_to_main, religion_to_category
+
+
+def _load_dmg_occupations() -> Dict[str, str]:
+    """Load occupations from Excel file and create direct match -> SOC title mapping."""
+    occupation_to_soc = {}
+
+    xlsx_path = _DATA_DIR / "DMG-soc_2018_direct_match_title_file.xlsx"
+    try:
+        df = pd.read_excel(xlsx_path, dtype=str)
+
+        # Find columns (they might have different names)
+        direct_match_col = None
+        soc_title_col = None
+
+        for col in df.columns:
+            if "Direct Match Title" in col:
+                direct_match_col = col
+            elif "SOC Title" in col or "Occupation" in col:
+                soc_title_col = col
+
+        if direct_match_col and soc_title_col:
+            for _, row in df.iterrows():
+                direct_match = row.get(direct_match_col, "").strip()
+                soc_title = row.get(soc_title_col, "").strip()
+
+                if direct_match and soc_title:
+                    occupation_to_soc[direct_match.lower()] = soc_title
+
+    except Exception as e:
+        print(f"Error loading occupation data: {e}")
+
+    return occupation_to_soc
+
+
+def build_term_group(terms: List[str], capturing: bool = False) -> str:
+    """Build a regex group from a list of terms, escaping special characters.
+
+    Args:
+        terms: List of terms to build into a regex group
+        capturing: If True, returns a capturing group (...), else non-capturing (?:...)
+    """
+    # Sort by length (longest first) to avoid partial matches
+    sorted_terms = sorted(terms, key=len, reverse=True)
+
+    # Escape special regex characters and join with |
+    escaped_terms = []
+    for term in sorted_terms:
+        # Escape special regex characters
+        escaped = re.escape(term)
+        # Replace spaces with \s+ to match multiple spaces
+        escaped = escaped.replace(r"\ ", r"\s+")
+        escaped_terms.append(escaped)
+
+    if capturing:
+        return r"(" + "|".join(escaped_terms) + ")"
+    else:
+        return r"(?:" + "|".join(escaped_terms) + ")"
+
+
+def _build_nationalities_from_countries(countries: List[str]) -> List[str]:
+    """Generate nationality terms from country names using common patterns."""
+    nationalities = []
+
+    # Common country to nationality mappings
+    special_mappings = {
+        "united states": "american",
+        "united states of america": "american",
+        "usa": "american",
+        "u.s.a.": "american",
+        "u.s.": "american",
+        "united kingdom": "british",
+        "uk": "british",
+        "great britain": "british",
+        "england": "english",
+        "scotland": "scottish",
+        "wales": "welsh",
+        "ireland": "irish",
+        "netherlands": "dutch",
+        "france": "french",
+        "spain": "spanish",
+        "portugal": "portuguese",
+        "germany": "german",
+        "switzerland": "swiss",
+        "greece": "greek",
+        "turkey": "turkish",
+        "denmark": "danish",
+        "sweden": "swedish",
+        "norway": "norwegian",
+        "finland": "finnish",
+        "poland": "polish",
+        "czech republic": "czech",
+        "slovakia": "slovak",
+        "philippines": "filipino",
+        "china": "chinese",
+        "japan": "japanese",
+        "vietnam": "vietnamese",
+        "thailand": "thai",
+        "bangladesh": "bangladeshi",
+        "pakistan": "pakistani",
+        "afghanistan": "afghan",
+        "iraq": "iraqi",
+        "iran": "iranian",
+        "israel": "israeli",
+        "new zealand": "new zealander",
+    }
+
+    for country in countries:
+        country_lower = country.lower()
+
+        # Check special mappings first
+        if country_lower in special_mappings:
+            nationalities.append(special_mappings[country_lower])
+        # Common patterns
+        elif country_lower.endswith("ia"):
+            # Countries ending in 'ia' typically add 'n' (e.g., India -> Indian)
+            nationalities.append(country + "n")
+        elif country_lower.endswith("a") and not country_lower.endswith("ia"):
+            # Countries ending in 'a' typically add 'n' (e.g., Canada -> Canadian)
+            nationalities.append(country + "n")
+        elif country_lower.endswith("land"):
+            # Countries ending in 'land' typically add 'er' or 'ish'
+            base = country[:-4]
+            nationalities.append(base + "er")
+            nationalities.append(base + "ish")
+        elif country_lower.endswith("y"):
+            # Countries ending in 'y' often change to 'ian' (e.g., Italy -> Italian)
+            nationalities.append(country[:-1] + "ian")
+        else:
+            # Default: add 'ian' or 'ese'
+            nationalities.append(country + "ian")
+            nationalities.append(country + "ese")
+
+    return nationalities
+
+
+def _build_religion_adherents(religions: List[str]) -> List[str]:
+    """Generate adherent terms from religion names."""
+    adherents = []
+
+    # Special mappings for religion adherents
+    special_mappings = {
+        "christianity": "christian",
+        "islam": "muslim",
+        "judaism": "jewish",
+        "buddhism": "buddhist",
+        "hinduism": "hindu",
+        "sikhism": "sikh",
+        "jainism": "jain",
+        "zoroastrianism": "zoroastrian",
+        "catholicism": "catholic",
+        "protestantism": "protestant",
+        "orthodoxy": "orthodox",
+        "eastern orthodoxy": "eastern orthodox",
+        "shia islam": "shia",
+        "sunni islam": "sunni",
+        "atheism": "atheist",
+        "agnosticism": "agnostic",
+    }
+
+    for religion in religions:
+        religion_lower = religion.lower()
+
+        # Check special mappings first
+        if religion_lower in special_mappings:
+            adherents.append(special_mappings[religion_lower])
+        # Common patterns
+        elif religion_lower.endswith("ism"):
+            # Remove 'ism' and add 'ist'
+            adherents.append(religion[:-3] + "ist")
+        elif religion_lower.endswith("ity"):
+            # Remove 'ity' (e.g., Christianity -> Christian)
+            adherents.append(religion[:-3])
+        else:
+            # Default: add as is and with 'ist' suffix
+            adherents.append(religion)
+            adherents.append(religion + "ist")
+
+    return adherents
+
+
+# Load demographic data
+dmg_countries = _load_dmg_countries()
+dmg_genders = _load_dmg_genders()
+dmg_city_to_country = _load_dmg_cities()
+dmg_religion_to_main, dmg_religion_to_category = _load_dmg_religions()
+dmg_occupation_to_soc = _load_dmg_occupations()
+
+# Build term groups for regex patterns
+dmg_nationalities = _build_nationalities_from_countries(dmg_countries)
+dmg_cities = list(dmg_city_to_country.keys())
+dmg_religions = list(
+    set(list(dmg_religion_to_main.keys()) + list(dmg_religion_to_main.values()))
+)
+dmg_religion_adherents = _build_religion_adherents(dmg_religions)
+dmg_occupations = list(dmg_occupation_to_soc.keys())
 
 
 vad_dict = _load_nrc_vad_lexicon()

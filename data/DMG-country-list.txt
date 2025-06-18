@@ -1,0 +1,231 @@
+India
+China
+United States
+Indonesia
+Pakistan
+Nigeria
+Brazil
+Bangladesh
+Russia
+Mexico
+Japan
+Philippines
+Ethiopia
+Egypt
+Vietnam
+Iran
+Turkey
+Germany
+France
+United Kingdom
+Thailand
+South Africa
+Tanzania
+Italy
+Colombia
+Kenya
+Myanmar
+South Korea
+Sudan
+Spain
+Algeria
+Argentina
+Uganda
+Iraq
+Poland
+Afghanistan
+Canada
+Uzbekistan
+Morocco
+Angola
+Malaysia
+Peru
+Mozambique
+Ghana
+Ukraine
+Yemen
+Saudi Arabia
+Madagascar
+Ivory Coast
+Nepal
+Cameroon
+North Korea
+Australia
+Niger
+Burkina Faso
+Taiwan
+Sri Lanka
+Kazakhstan
+Malawi
+Chile
+Zambia
+Romania
+Syria
+Chad
+Senegal
+Netherlands
+Somalia
+Guatemala
+Cambodia
+Ecuador
+Zimbabwe
+South Sudan
+Guinea
+Rwanda
+Benin
+Burundi
+Haiti
+Tunisia
+Belgium
+Papua New Guinea
+Jordan
+Bolivia
+Cuba
+Czech Republic
+Dominican Republic
+United Arab Emirates
+Portugal
+Sweden
+Greece
+Tajikistan
+Azerbaijan
+Israel
+Honduras
+Hungary
+Austria
+Belarus
+Switzerland
+Sierra Leone
+Togo
+Laos
+Hong Kong
+Libya
+Kyrgyzstan
+Turkmenistan
+Nicaragua
+Serbia
+Central African Republic
+Bulgaria
+Republic of the Congo
+Paraguay
+Singapore
+El Salvador
+Denmark
+Finland
+Norway
+Lebanon
+Palestine
+Slovakia
+Ireland
+New Zealand
+Costa Rica
+Oman
+Liberia
+Mauritania
+Kuwait
+Panama
+Croatia
+Georgia
+Eritrea
+Mongolia
+Uruguay
+Bosnia and Herzegovina
+Puerto Rico
+Armenia
+Namibia
+Lithuania
+Qatar
+Jamaica
+Moldova
+Albania
+Lesotho
+Slovenia
+Latvia
+North Macedonia
+Guinea-Bissau
+Bahrain
+Kosovo
+Equatorial Guinea
+East Timor
+Estonia
+Trinidad and Tobago
+Mauritius
+Eswatini
+Djibouti
+Cyprus
+Fiji
+Comoros
+Bhutan
+Guyana
+Solomon Islands
+Macau
+Luxembourg
+Montenegro
+Suriname
+Cape Verde
+Western Sahara
+Northern Cyprus
+Transnistria
+Malta
+Maldives
+Brunei
+Belize
+Bahamas
+Iceland
+Abkhazia
+New Caledonia
+Barbados
+Vanuatu
+São Tomé and Príncipe
+Samoa
+Saint Lucia
+Curaçao
+Guam
+Seychelles
+Grenada
+Saint Vincent and the Grenadines
+Aruba
+Antigua and Barbuda
+Jersey
+Tonga
+Andorra
+United States Virgin Islands
+Cayman Islands
+Isle of Man
+Dominica
+Guernsey
+Bermuda
+Greenland
+South Ossetia
+Faroe Islands
+Saint Kitts and Nevis
+Turks and Caicos Islands
+American Samoa
+Northern Mariana Islands
+Marshall Islands
+Sint Maarten
+Liechtenstein
+Monaco
+Gibraltar
+San Marino
+French Polynesia
+Saint Martin
+Saint Barthélemy
+Palau
+Anguilla
+Cook Islands
+Nauru
+Wallis and Futuna
+Saint Helena
+Ascension Island
+Tristan da Cunha
+Montserrat
+Falkland Islands
+Norfolk Island
+Christmas Island
+Niue
+Tokelau
+Saint Pierre and Miquelon
+Vatican City
+Cocos Islands
+Pitcairn Islands

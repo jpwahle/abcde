@@ -18,7 +18,7 @@ graph TD
 
 ## 2. Downloading the raw Reddit dump
 
-The pipeline expects the uncompressed monthly `RS_YYYY-MM.jsonl` (posts) – and, if you are also interested in comments, `RC_YYYY-MM.jsonl`.  
+The pipeline expects the uncompressed monthly `RS_YYYY-MM.jsonl` (posts) – and, if you are also interested in comments, `RC_YYYY-MM.jsonl`.
 We bundle helper scripts in `download/` that automate fetching and extracting the **Pushshift Reddit** archive (2010-2022).
 
 ```bash

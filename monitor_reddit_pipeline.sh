@@ -121,13 +121,13 @@ while true; do
         echo "$(date): no matching job found → exiting monitor"
         break
     fi
-    
+
     # Check if the job is still running
     if ! is_job_running "$JOB_ID"; then
         echo "$(date): job $JOB_ID is no longer running → exiting monitor"
         break
     fi
-    
+
     check_tasks "$JOB_ID"
     echo "---- sleep $CHECK_INTERVAL s ----"
     sleep "$CHECK_INTERVAL"
