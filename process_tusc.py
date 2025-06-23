@@ -13,6 +13,7 @@ from tqdm import tqdm
 from helpers import (
     SelfIdentificationDetector,
     apply_linguistic_features,
+    detect_private_information,
     detect_self_identification_in_tusc_entry,
     detect_self_identification_in_tusc_entry_with_mappings,
     ensure_output_directory,
@@ -42,7 +43,13 @@ def load_self_identified_users(csv_path: str) -> set:
     return user_ids
 
 
-def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None:
+def main(
+    input_file: str,
+    output_dir: str,
+    chunk_size: int,
+    stages: str,
+    collect_pii_posts: bool = False,
+) -> None:
     ensure_output_directory(os.path.join(output_dir, "_"))
     split = determine_split(input_file)
 
@@ -166,6 +173,33 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
 
         print(f"Found {len(posts_results)} posts from self-identified users")
 
+    if collect_pii_posts:
+        print("Collecting posts containing private information")
+        pii_results: list[dict] = []
+        parquet_file = pq.ParquetFile(input_file)
+        total_rows = parquet_file.metadata.num_rows
+        total_batches = (total_rows // chunk_size) + 1
+        for batch in tqdm(
+            parquet_file.iter_batches(batch_size=chunk_size), total=total_batches
+        ):
+            df = batch.to_pandas()
+            for _, row in df.iterrows():
+                entry = row.to_dict()
+                pii = detect_private_information(entry.get("Tweet", ""))
+                if not pii:
+                    continue
+                rec = entry.copy()
+                rec["PrivateInfo"] = "|".join(pii)
+                pii_results.append(rec)
+        write_results_to_csv(
+            pii_results,
+            os.path.join(output_dir, f"{split}_private_posts.tsv"),
+            output_tsv=True,
+            data_source="tusc",
+            split=split,
+        )
+        print(f"Found {len(pii_results)} posts with private information")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run TUSC processing pipeline")
@@ -183,9 +217,24 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--stages",
-        choices=["1", "2", "both"],
+        choices=["none", "1", "2", "both"],
         default="both",
-        help="Which stages to run: '1' for self-identification detection only, '2' for post collection only, 'both' for complete pipeline",
+        help=(
+            "Which stages to run: '1' for self-identification detection only, "
+            "'2' for post collection only, 'both' for complete pipeline, "
+            "'none' to skip both stages"
+        ),
+    )
+    parser.add_argument(
+        "--collect_pii_posts",
+        action="store_true",
+        help="Collect posts that contain private information using Presidio",
     )
     args = parser.parse_args()
-    main(args.input_file, args.output_dir, args.chunk_size, args.stages)
+    main(
+        args.input_file,
+        args.output_dir,
+        args.chunk_size,
+        args.stages,
+        args.collect_pii_posts,
+    )

@@ -30,6 +30,7 @@ from helpers import (
     SelfIdentificationDetector,
     append_results_to_csv,
     apply_linguistic_features,
+    detect_private_information,
     detect_self_identification_with_resolved_age,
     ensure_output_directory,
     extract_columns,
@@ -38,8 +39,16 @@ from helpers import (
     get_all_jsonl_files,
 )
 
-# Global detector for stage1 self-identification detection
-_detector = SelfIdentificationDetector()
+# Lazily initialized detector for stage1 self-identification detection
+_detector: SelfIdentificationDetector | None = None
+
+
+def get_detector() -> SelfIdentificationDetector:
+    """Return the global SelfIdentificationDetector, initializing if needed."""
+    global _detector
+    if _detector is None:
+        _detector = SelfIdentificationDetector()
+    return _detector
 _user_ids = set()
 _user_birthyear_map = {}
 
@@ -263,7 +272,8 @@ def process_chunk_stage1(task):
             continue
 
         # Get age-resolved detection first
-        age_matches = detect_self_identification_with_resolved_age(entry, _detector)
+        detector = get_detector()
+        age_matches = detect_self_identification_with_resolved_age(entry, detector)
         if not age_matches:
             continue
 
@@ -271,7 +281,7 @@ def process_chunk_stage1(task):
         title = entry.get("title", "")
         selftext = entry.get("selftext", "")
         combined_text = f"{title} {selftext}"
-        demographic_detections = _detector.detect_with_mappings(combined_text)
+        demographic_detections = detector.detect_with_mappings(combined_text)
 
         # Format demographic fields for output
         formatted_demographics = format_demographic_detections_for_output(
@@ -309,7 +319,8 @@ def process_file_stage1(file_path: str) -> list[dict]:
                 continue
 
             # Get age-resolved detection first
-            age_matches = detect_self_identification_with_resolved_age(entry, _detector)
+            detector = get_detector()
+            age_matches = detect_self_identification_with_resolved_age(entry, detector)
             if not age_matches:
                 continue
 
@@ -317,7 +328,7 @@ def process_file_stage1(file_path: str) -> list[dict]:
             title = entry.get("title", "")
             selftext = entry.get("selftext", "")
             combined_text = f"{title} {selftext}"
-            demographic_detections = _detector.detect_with_mappings(combined_text)
+            demographic_detections = detector.detect_with_mappings(combined_text)
 
             # Format demographic fields for output
             formatted_demographics = format_demographic_detections_for_output(
@@ -401,6 +412,45 @@ def process_file_stage2(file_path) -> list[dict]:
     return results_local
 
 
+def process_chunk_private(task):
+    path, lines, chunk_idx, total_chunks_for_task = task
+    results_local: list[dict] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+            continue
+        post = extract_columns(entry, None)
+        pii = detect_private_information(post["selftext"])
+        if pii:
+            post["PrivateInfo"] = "|".join(pii)
+            results_local.append(post)
+    log_with_timestamp(
+        f"Processed chunk {chunk_idx + 1}/{total_chunks_for_task}: {len(lines)} posts from {path}."
+    )
+    return results_local
+
+
+def process_file_private(file_path) -> list[dict]:
+    results_local: list[dict] = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not filter_entry(entry, split="text", min_words=5, max_words=1000):
+                continue
+            post = extract_columns(entry, None)
+            pii = detect_private_information(post["selftext"])
+            if pii:
+                post["PrivateInfo"] = "|".join(pii)
+                results_local.append(post)
+    return results_local
+
+
 def main(
     input_dir: str,
     output_dir: str,
@@ -410,10 +460,11 @@ def main(
     task_id: int = 0,
     total_tasks: int = 1,
     linecount_dir: str = None,
+    collect_pii_posts: bool = False,
 ) -> None:
 
     log_with_timestamp(
-        f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory"
+        f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory, collect_pii_posts={collect_pii_posts}"
     )
 
     if FAST_IO_AVAILABLE:
@@ -617,6 +668,30 @@ def main(
             f"Task {task_id} found {total_posts} posts from self-identified users"
         )
 
+    if collect_pii_posts:
+        log_with_timestamp("Collecting posts containing private information")
+        pii_path = os.path.join(output_dir, "reddit_private_posts.tsv")
+        total_pii = 0
+        for fp, lines, chunk_idx, total_chunks_for_task in generate_tasks(files):
+            if lines is None:
+                part = process_file_private(fp)
+            else:
+                part = process_chunk_private(
+                    (fp, lines, chunk_idx, total_chunks_for_task)
+                )
+            append_results_to_csv(
+                part,
+                pii_path,
+                output_tsv=True,
+                data_source="reddit",
+                split="text",
+            )
+            total_pii += len(part)
+
+        log_with_timestamp(
+            f"Task {task_id} found {total_pii} posts with private information"
+        )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Reddit processing pipeline")
@@ -640,9 +715,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--stages",
-        choices=["1", "2", "both"],
+        choices=["none", "1", "2", "both"],
         default="both",
-        help="Which stages to run: 1 for self-identification detection only, 2 for post collection only, both for complete pipeline",
+        help=(
+            "Which stages to run: '1' for self-identification detection only, "
+            "'2' for post collection only, 'both' for complete pipeline, "
+            "'none' to skip both stages"
+        ),
     )
     parser.add_argument(
         "--task_id",
@@ -661,6 +740,11 @@ if __name__ == "__main__":
         type=str,
         help="Directory containing precomputed linecount files (filename_linecount format)",
     )
+    parser.add_argument(
+        "--collect_pii_posts",
+        action="store_true",
+        help="Collect posts that contain private information using Presidio",
+    )
 
     args = parser.parse_args()
     main(
@@ -672,6 +756,7 @@ if __name__ == "__main__":
         args.task_id,
         args.total_tasks,
         args.linecount_dir,
+        args.collect_pii_posts,
     )
 
     log_with_timestamp(f"Done with Reddit pipeline for worker {args.task_id}")

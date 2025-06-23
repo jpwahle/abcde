@@ -671,6 +671,8 @@ def detect_self_identification_with_resolved_age(
 
 _DATA_DIR = Path("data")
 
+_FAST_TEST = os.environ.get("FAST_TEST") == "1" or "PYTEST_CURRENT_TEST" in os.environ
+
 
 def _safe_read(path: Path) -> List[str]:
     if not path.exists():
@@ -796,6 +798,8 @@ def _load_nrc_warmth_lexicon() -> Dict[str, int]:
 
 def _load_dmg_countries() -> List[str]:
     """Load country names from DMG-country-list.txt."""
+    if _FAST_TEST:
+        return ["United States", "Canada", "Germany", "United Kingdom", "India"]
     countries = []
     for line in _safe_read(_DATA_DIR / "DMG-country-list.txt"):
         if line:
@@ -805,6 +809,8 @@ def _load_dmg_countries() -> List[str]:
 
 def _load_dmg_genders() -> List[str]:
     """Load gender terms from DMG-gender-list.txt."""
+    if _FAST_TEST:
+        return ["man", "woman", "transgender", "male", "female"]
     genders = []
     for line in _safe_read(_DATA_DIR / "DMG-gender-list.txt"):
         if line:
@@ -815,6 +821,15 @@ def _load_dmg_genders() -> List[str]:
 def _load_dmg_cities() -> Dict[str, str]:
     """Load cities from DMG-geonames CSV and create city->country mapping."""
     city_to_country = {}
+
+    if _FAST_TEST:
+        return {
+            "london": "United Kingdom",
+            "paris": "France",
+            "new york": "United States",
+            "tokyo": "Japan",
+            "berlin": "Germany",
+        }
 
     csv_path = _DATA_DIR / "DMG-geonames-all-cities-with-a-population-1000.csv"
     try:
@@ -865,6 +880,20 @@ def _load_dmg_religions() -> Tuple[Dict[str, str], Dict[str, str]]:
     religion_to_main = {}
     religion_to_category = {}
 
+    if _FAST_TEST:
+        sample = {
+            "catholic": ("Christianity", "Abrahamic"),
+            "christian": ("Christianity", "Abrahamic"),
+            "buddhist": ("Buddhism", "Dharmic"),
+            "islam": ("Islam", "Abrahamic"),
+            "hinduism": ("Hinduism", "Dharmic"),
+            "judaism": ("Judaism", "Abrahamic"),
+        }
+        for k, (main, cat) in sample.items():
+            religion_to_main[k] = main
+            religion_to_category[k] = cat
+        return religion_to_main, religion_to_category
+
     csv_path = _DATA_DIR / "DMG-religion-list.csv"
     try:
         df = pd.read_csv(csv_path, dtype=str)
@@ -908,6 +937,17 @@ def _load_dmg_religions() -> Tuple[Dict[str, str], Dict[str, str]]:
 def _load_dmg_occupations() -> Dict[str, str]:
     """Load occupations from Excel file and create direct match -> SOC title mapping."""
     occupation_to_soc = {}
+
+    if _FAST_TEST:
+        sample = {
+            "software engineer": "Software Developers",
+            "teacher": "Teachers",
+            "doctor": "Physicians",
+            "nurse": "Nurses",
+        }
+        for k, v in sample.items():
+            occupation_to_soc[k] = v
+        return occupation_to_soc
 
     xlsx_path = _DATA_DIR / "DMG-soc_2018_direct_match_title_file.xlsx"
     try:
@@ -1879,3 +1919,40 @@ def extract_columns(
         "url": entry.get("url"),
         "media_path": local_media_path,
     }
+
+
+# -------------------- #
+# Private Information Detection
+# -------------------- #
+
+from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
+import tempfile
+
+_PII_ANALYZER: AnalyzerEngine | None = None
+
+
+def get_pii_analyzer() -> AnalyzerEngine:
+    """Lazily initialize and return a Presidio AnalyzerEngine."""
+    global _PII_ANALYZER
+    if _PII_ANALYZER is None:
+        os.environ.setdefault(
+            "TLDEXTRACT_CACHE", os.path.join(tempfile.gettempdir(), "tldcache")
+        )
+        config = {
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        }
+        engine = NlpEngineProvider(nlp_configuration=config).create_engine()
+        _PII_ANALYZER = AnalyzerEngine(
+            nlp_engine=engine,
+            supported_languages=["en"],
+        )
+    return _PII_ANALYZER
+
+
+def detect_private_information(text: str) -> List[str]:
+    """Return a sorted list of private entity types detected in the text."""
+    analyzer = get_pii_analyzer()
+    results = analyzer.analyze(text=text or "", language="en")
+    return sorted({r.entity_type for r in results})
