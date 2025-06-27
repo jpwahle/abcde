@@ -5,13 +5,10 @@
 #SBATCH --time=12:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=1
-#SBATCH --array=0-9999%100  # Up to 10,000 tasks, 100 at a time
+#SBATCH --array=0-256
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
-
-# Activate UV environment
-eval "$(uv generate-shell-activation)"
 
 # Configuration
 INPUT_DIR="$HOME/datasets/google-books-ngrams/extracted"
@@ -30,11 +27,13 @@ echo "Chunk size: $CHUNK_SIZE lines"
 echo "Pattern: $PATTERN"
 
 # Process the assigned chunk
-python process_ngrams.py \
+# Use the fast version with byte-offset indexing
+uv run python process_ngrams.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --pattern "$PATTERN" \
     --chunk_size $CHUNK_SIZE \
-    --task_id $SLURM_ARRAY_TASK_ID
+    --task_id $SLURM_ARRAY_TASK_ID \
+    --build_indexes
 
 echo "End time: $(date)"

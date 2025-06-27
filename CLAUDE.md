@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a dataset annotation pipeline that processes Reddit and Twitter/X (TUSC) data to identify users who self-identify demographic information and enriches their posts with linguistic features. The pipeline outputs TSV files suitable for downstream analysis.
+This is a dataset annotation pipeline that processes Reddit, Twitter/X (TUSC), and Google Books Ngrams data to identify users who self-identify demographic information and enriches their posts with linguistic features. The pipeline outputs TSV files suitable for downstream analysis.
 
 ## Commands
 
@@ -48,11 +48,24 @@ uv run python process_tusc.py \
     --stages both  # or 'stage1' or 'stage2'
 ```
 
+#### Google Ngrams Processing
+```bash
+# Process Google Books Ngrams with fast byte-offset indexing
+uv run python process_ngrams.py \
+    --input_dir path/to/ngrams/extracted \
+    --output_dir path/to/output \
+    --pattern "*5gram*" \
+    --chunk_size 100000 \
+    --task_id $SLURM_ARRAY_TASK_ID \
+    --build_indexes  # Builds byte-offset indexes on first run
+```
+
 ### SLURM Submission
 ```bash
 # Submit to SLURM cluster
 sbatch submit_reddit.sh
 sbatch submit_tusc.sh
+sbatch run_google_ngrams.sh
 ```
 
 ## Architecture
@@ -121,9 +134,73 @@ Demographic fields follow specific naming conventions:
 - Set `--workers` based on available CPU cores
 - Reddit processing uses fast indexing with numpy/orjson
 - TUSC processing leverages parquet's columnar format
+- Google Ngrams processing uses byte-offset indexing for fast random access
 
 ### Data Quality Filters
 - Text length: 5-1000 words
 - Excludes: deleted users, AutoModerator, adult content
 - Requires valid self-identification patterns
 - Age must be resolvable and within valid range
+
+## Data Download and Preparation
+
+### Reddit Data Download
+The Reddit data is downloaded using the Academic Torrents dataset. The download script:
+- Downloads JSONL files via torrent (requires `aria2c`)
+- Supports resumable downloads
+- Extracts .zst compressed files to JSONL
+- Located in `download-reddit/download_reddit.py`
+
+```bash
+# Download Reddit data
+cd download-reddit
+python download_reddit.py --output_dir /path/to/reddit/data
+```
+
+### Google Books Ngrams Download
+The Google Ngrams download process:
+- Downloads the entire Google Books Ngrams corpus (Version 3)
+- Handles 1-gram through 5-gram datasets
+- Supports parallel downloads with resumability
+- Verifies file integrity using MD5 checksums
+- Located in `download-google-books-ngrams/`
+
+```bash
+# Download Google Ngrams (interactive menu)
+cd download-google-books-ngrams
+python download_google_ngrams.py
+
+# Or download specific n-gram type
+python download_specific_ngrams.py --ngram-type 5
+```
+
+Key features:
+- Progress tracking with real-time download speeds
+- Automatic retry on failures
+- MD5 checksum verification
+- Supports downloading to custom directories
+
+### Google Ngrams Processing Optimization
+The `process_ngrams.py` script has been optimized with byte-offset indexing:
+
+**Original approach**: Sequential line reading requiring O(n) time to reach line n
+**Optimized approach**: Direct byte-offset seeking using memory-mapped index files
+
+Key improvements:
+1. **Index Building**: Creates `.idx` files mapping line numbers to byte offsets
+2. **Fast Random Access**: Uses `numpy.memmap` for efficient index reading
+3. **Parallel Processing**: SLURM tasks can directly jump to their assigned chunks
+4. **Memory Efficiency**: Processes chunks without loading entire files
+
+Performance benefits:
+- Near-instant access to any line in multi-GB files
+- Linear speedup with number of SLURM array tasks
+- Minimal memory footprint regardless of file size
+- Index files are reusable across runs
+
+The indexing approach matches the Reddit pipeline's performance characteristics.
+
+## Memories and Notes
+
+### Data Processing Notes
+- But the google ngrams don't use user extraction (this is only true for social media, I will add more data like LLM generated and blogs to the processing but they won't have user processing)
