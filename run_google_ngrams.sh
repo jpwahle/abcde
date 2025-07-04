@@ -12,7 +12,7 @@ mkdir -p logs
 
 # Configuration
 INPUT_DIR="$HOME/datasets/google-books-ngrams/extracted"
-OUTPUT_DIR="$HOME/datasets/google-books-ngrams/processed"
+OUTPUT_DIR="outputs_google_ngrams"
 CHUNK_SIZE=100000  # Lines per chunk
 PATTERN="*5gram*"  # Process 5-grams
 

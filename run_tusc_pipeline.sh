@@ -2,7 +2,7 @@
 #SBATCH --job-name=tusc_pipeline
 #SBATCH --output=logs/tusc_pipeline.%j.out
 #SBATCH --error=logs/tusc_pipeline.%j.err
-#SBATCH --time=48:00:00
+#SBATCH --time=72:00:00
 #SBATCH --mem=64GB
 
 set -euxo pipefail
