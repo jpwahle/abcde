@@ -20,6 +20,7 @@ PATTERN="*5gram*"  # Process 5-grams
 mkdir -p "$OUTPUT_DIR"
 
 echo "SLURM Array Task ID: $SLURM_ARRAY_TASK_ID"
+echo "SLURM Array Task Count: $SLURM_ARRAY_TASK_COUNT"
 echo "Start time: $(date)"
 echo "Input directory: $INPUT_DIR"
 echo "Output directory: $OUTPUT_DIR"
@@ -34,6 +35,7 @@ uv run python process_ngrams.py \
     --pattern "$PATTERN" \
     --chunk_size $CHUNK_SIZE \
     --task_id $SLURM_ARRAY_TASK_ID \
+    --num_workers $SLURM_ARRAY_TASK_COUNT \
     --build_indexes
 
 echo "End time: $(date)"

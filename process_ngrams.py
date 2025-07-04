@@ -340,6 +340,12 @@ def main():
         help="Task ID for this worker (typically SLURM_ARRAY_TASK_ID)",
     )
     parser.add_argument(
+        "--num_workers",
+        type=int,
+        required=True,
+        help="Total number of parallel workers (typically SLURM_ARRAY_TASK_COUNT)",
+    )
+    parser.add_argument(
         "--no_features",
         action="store_true",
         help="Skip linguistic feature extraction (only parse ngrams)",
@@ -370,62 +376,57 @@ def main():
     index_dir = output_dir / "indexes"
     index_dir.mkdir(exist_ok=True)
 
-    # Build indexes if requested or if this is task 0
-    if args.build_indexes or args.task_id == 0:
+    # --- Index Building ---
+    # Task 0 is responsible for building all indexes.
+    # Other tasks will wait for them if needed.
+    if args.task_id == 0:
         if not args.use_sequential and FAST_IO_AVAILABLE:
-            log_with_timestamp("Building indexes for all ngram files...")
+            log_with_timestamp("Task 0: Building indexes for all ngram files...")
             ngram_files = sorted(input_dir.glob(args.pattern))
             for file_path in ngram_files:
                 index_path = index_dir / f"{file_path.name}.idx"
                 if not index_path.exists():
-                    build_index(str(file_path), str(index_path))
+                    try:
+                        build_index(str(file_path), str(index_path))
+                    except Exception as e:
+                        log_with_timestamp(f"Error building index for {file_path.name}: {e}")
+                        # If index building fails, we can't proceed with indexed mode.
+                        log_with_timestamp("Exiting due to index building failure.")
+                        sys.exit(1)
+            log_with_timestamp("Task 0: Index building complete.")
 
-    # Build task index
-    print(f"Building task index for pattern '{args.pattern}'...")
+    # --- Task Mapping ---
+    # All tasks build the full task list to ensure consistent mapping.
+    log_with_timestamp(f"Task {args.task_id}: Building task index for pattern '{args.pattern}'...")
     tasks = build_task_index(
         input_dir, args.pattern, args.chunk_size, index_dir if not args.use_sequential else None
     )
 
     if not tasks:
-        print(f"Error: No files matching pattern '{args.pattern}' in {input_dir}")
+        log_with_timestamp(f"Error: No files matching pattern '{args.pattern}' in {input_dir}")
         sys.exit(1)
 
-    print(f"Total tasks (chunks): {len(tasks)}")
+    log_with_timestamp(f"Task {args.task_id}: Total tasks (chunks) found: {len(tasks)}")
 
-    # Check if task ID is valid
-    if args.task_id >= len(tasks):
-        print(f"Task ID {args.task_id} exceeds number of tasks ({len(tasks)})")
-        sys.exit(0)
+    # --- Worker Loop ---
+    # Each worker iterates through the global task list and processes its assigned chunks.
+    for chunk_index, (file_path, start_line, end_line) in enumerate(tasks):
+        # Assign task to worker using modulo
+        if chunk_index % args.num_workers != args.task_id:
+            continue
 
-    # Get task for this worker
-    file_path, start_line, end_line = tasks[args.task_id]
-    chunk_lines = end_line - start_line
+        chunk_lines = end_line - start_line
+        log_with_timestamp(f"\nTask {args.task_id}: Processing chunk {chunk_index} / {len(tasks)}")
+        log_with_timestamp(f"  File: {file_path.name}")
+        log_with_timestamp(f"  Lines: {start_line:,} - {end_line:,} ({chunk_lines:,} lines)")
+        log_with_timestamp(f"  Features: {'ENABLED' if not args.no_features else 'DISABLED'}")
+        log_with_timestamp(f"  Method: {'SEQUENTIAL' if args.use_sequential else 'INDEXED'}")
 
-    print(f"\nTask {args.task_id}:")
-    print(f"  File: {file_path.name}")
-    print(f"  Lines: {start_line:,} - {end_line:,} ({chunk_lines:,} lines)")
-    print(f"  Features: {'ENABLED' if not args.no_features else 'DISABLED'}")
-    print(f"  Method: {'SEQUENTIAL' if args.use_sequential else 'INDEXED'}")
+        start_time = datetime.now()
+        results = []
 
-    # Process the chunk
-    start_time = datetime.now()
-
-    if args.use_sequential or not FAST_IO_AVAILABLE:
-        results = process_file_chunk_sequential(
-            file_path,
-            start_line,
-            end_line,
-            include_features=not args.no_features,
-        )
-    else:
-        # Wait for index if not task 0
-        index_path = index_dir / f"{file_path.name}.idx"
-        if args.task_id > 0 and not index_path.exists():
-            log_with_timestamp(f"Waiting for index file: {index_path}")
-            if not wait_for_index(str(index_path)):
-                log_with_timestamp(
-                    "Timeout waiting for index. Falling back to sequential processing."
-                )
+        try:
+            if args.use_sequential or not FAST_IO_AVAILABLE:
                 results = process_file_chunk_sequential(
                     file_path,
                     start_line,
@@ -433,6 +434,16 @@ def main():
                     include_features=not args.no_features,
                 )
             else:
+                index_path = index_dir / f"{file_path.name}.idx"
+                # Wait for the index file to be created by task 0.
+                if not index_path.exists():
+                    log_with_timestamp(f"Task {args.task_id}: Waiting for index file: {index_path}")
+                    if not wait_for_index(str(index_path)):
+                        log_with_timestamp(
+                            f"Timeout waiting for index {index_path}. Skipping chunk."
+                        )
+                        continue  # Skip to the next assigned chunk
+
                 results = process_file_chunk_indexed(
                     file_path,
                     index_path,
@@ -440,47 +451,43 @@ def main():
                     end_line,
                     include_features=not args.no_features,
                 )
-        else:
-            # Build index if needed
-            if not index_path.exists():
-                build_index(str(file_path), str(index_path))
-            results = process_file_chunk_indexed(
-                file_path,
-                index_path,
-                start_line,
-                end_line,
-                include_features=not args.no_features,
+        except Exception as e:
+            log_with_timestamp(f"!!! ERROR processing chunk {chunk_index} for file {file_path.name}: {e}")
+            continue # Move to the next chunk
+
+        processing_time = (datetime.now() - start_time).total_seconds()
+        log_with_timestamp(f"Processed {len(results):,} ngrams in {processing_time:.2f} seconds")
+
+        if not results:
+            log_with_timestamp("No valid ngrams found in this chunk.")
+            continue
+
+        # --- Write Results ---
+        # Use the global chunk_index in the output filename to avoid collisions.
+        output_file = output_dir / f"{file_path.stem}_chunk_{chunk_index:06d}.tsv"
+        try:
+            base_fields = ["ngram", "year", "match_count", "book_count"]
+            feature_fields = sorted(
+                [
+                    k
+                    for k in results[0].keys()
+                    if k not in base_fields and k != "ngram_cleaned"
+                ]
             )
+            fieldnames = base_fields + feature_fields
 
-    processing_time = (datetime.now() - start_time).total_seconds()
-    print(f"\nProcessed {len(results):,} ngrams in {processing_time:.2f} seconds")
+            with open(output_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=fieldnames, delimiter="\t", extrasaction="ignore"
+                )
+                writer.writeheader()
+                writer.writerows(results)
 
-    # Write results to TSV
-    # Use file name and chunk info in output filename
-    output_file = output_dir / f"{file_path.stem}_chunk_{args.task_id:06d}.tsv"
+            log_with_timestamp(f"Results for chunk {chunk_index} written to: {output_file}")
+        except Exception as e:
+            log_with_timestamp(f"!!! ERROR writing output for chunk {chunk_index}: {e}")
 
-    if results:
-        # Determine field order - original fields first, then features
-        base_fields = ["ngram", "year", "match_count", "book_count"]
-        feature_fields = sorted(
-            [
-                k
-                for k in results[0].keys()
-                if k not in base_fields and k != "ngram_cleaned"
-            ]
-        )
-        fieldnames = base_fields + feature_fields
-
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=fieldnames, delimiter="\t", extrasaction="ignore"
-            )
-            writer.writeheader()
-            writer.writerows(results)
-
-        print(f"Results written to: {output_file}")
-    else:
-        print("No valid ngrams found in this chunk")
+    log_with_timestamp(f"Task {args.task_id}: All assigned chunks processed. Exiting.")
 
 
 if __name__ == "__main__":
