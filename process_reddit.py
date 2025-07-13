@@ -453,12 +453,11 @@ def main(
     stages: str = "both",
     task_id: int = 0,
     total_tasks: int = 1,
-    linecount_dir: str = None,
     pii_mode: bool = False,
 ) -> None:
 
     log_with_timestamp(
-        f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, {linecount_dir} linecount directory, PII mode: {pii_mode}"
+        f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, PII mode: {pii_mode}"
     )
 
     if FAST_IO_AVAILABLE:
@@ -506,31 +505,8 @@ def main(
         # With chunked processing all tasks share the same list of files but
         # distribute chunks globally across tasks.
         for fp in files:
-            if linecount_dir:
-                filename = os.path.basename(fp)
-                lc_path = os.path.join(linecount_dir, f"{filename}_linecount")
-                if os.path.exists(lc_path):
-                    try:
-                        with open(lc_path, "r") as lc_f:
-                            n_lines = int(lc_f.read().strip())
-                            log_with_timestamp(
-                                f"Linecount file {lc_path} found. {n_lines} lines."
-                            )
-                    except Exception:
-                        log_with_timestamp(
-                            f"Error reading linecount file {lc_path}. Counting lines for {fp}."
-                        )
-                        n_lines = count_lines(fp, output_dir)
-                else:
-                    log_with_timestamp(
-                        f"Linecount file not found: {lc_path}. Counting lines for {fp}."
-                    )
-                    n_lines = count_lines(fp, output_dir)
-            else:
-                log_with_timestamp(
-                    f"No linecount directory provided, counting lines for {fp}"
-                )
-                n_lines = count_lines(fp, output_dir)
+            # Use indexed counting directly - it's fast now
+            n_lines = count_lines(fp, output_dir)
             line_counts[fp] = n_lines
             total_chunks += math.ceil(n_lines / chunk_size) if chunk_size else 1
         total_size_gb = sum(os.path.getsize(p) for p in files) / 1024**3
@@ -730,11 +706,6 @@ if __name__ == "__main__":
         help="Total number of tasks in the SLURM array",
     )
     parser.add_argument(
-        "--linecount_dir",
-        type=str,
-        help="Directory containing precomputed linecount files (filename_linecount format)",
-    )
-    parser.add_argument(
         "--pii",
         action="store_true",
         help="Run in PII detection mode instead of self-identification mode",
@@ -749,7 +720,6 @@ if __name__ == "__main__":
         args.stages,
         args.task_id,
         args.total_tasks,
-        args.linecount_dir,
         args.pii,
     )
 
