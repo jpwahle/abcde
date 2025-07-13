@@ -13,20 +13,6 @@ jobid2=$(STAGES=2 sbatch --dependency=afterok:$jobid1 --parsable run_reddit_pipe
 
 echo "Submitted STAGES=2 job with dependency on $jobid1. Job ID: $jobid2"
 
-# Submit monitoring job for Stage 1 (starts when Stage 1 starts)
-echo "Submitting monitoring job for STAGES=1..."
-monitor1_jobid=$(sbatch --parsable \
-    monitor_reddit_pipeline.sh --job-name reddit_pipeline --job-id $jobid1 --log-dir logs --timeout 120 --interval 60)
-
-echo "Submitted Stage 1 monitor job with ID: $monitor1_jobid"
-
-# Submit monitoring job for Stage 2 (starts when Stage 2 starts)
-echo "Submitting monitoring job for STAGES=2..."
-monitor2_jobid=$(sbatch --dependency=afterok:$jobid1 --parsable \
-    monitor_reddit_pipeline.sh --job-name reddit_pipeline --job-id $jobid2 --log-dir logs --timeout 120 --interval 60)
-
-echo "Submitted Stage 2 monitor job with ID: $monitor2_jobid"
-
 echo ""
 echo "============================================"
 echo "Full pipeline submitted successfully!"
@@ -38,5 +24,5 @@ echo "Monitor 2 Job ID: $monitor2_jobid (starts with Stage 2, logs: logs/monitor
 echo ""
 echo "To check job status: squeue --user=\$USER"
 echo "To check monitor logs: tail -f logs/monitor_stage1_${jobid1}.log"
-echo "To cancel jobs: scancel $jobid1 $jobid2 $monitor1_jobid $monitor2_jobid"
+echo "To cancel jobs: scancel $jobid1 $jobid2"
 echo "============================================"
