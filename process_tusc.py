@@ -17,6 +17,7 @@ from helpers import (
     detect_self_identification_in_tusc_entry_with_mappings,
     ensure_output_directory,
     write_results_to_csv,
+    print_banner,
 )
 
 
@@ -43,6 +44,7 @@ def load_self_identified_users(csv_path: str) -> set:
 
 
 def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None:
+    print_banner()
     ensure_output_directory(os.path.join(output_dir, "_"))
     split = determine_split(input_file)
 

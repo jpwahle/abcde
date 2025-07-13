@@ -13,6 +13,8 @@ import pathlib
 import time
 from typing import Optional
 
+from helpers import print_banner
+
 import pandas as pd
 
 try:
@@ -456,6 +458,7 @@ def main(
     pii_mode: bool = False,
 ) -> None:
 
+    print_banner()
     log_with_timestamp(
         f"Running with {workers} workers, {chunk_size} chunk size, {stages} stages, {task_id} task ID, {total_tasks} total tasks, PII mode: {pii_mode}"
     )

@@ -25,7 +25,7 @@ except ImportError:
     FAST_IO_AVAILABLE = False
     print("Warning: numpy not available. Fast indexing requires numpy.")
 
-from helpers import apply_linguistic_features
+from helpers import apply_linguistic_features, print_banner
 
 
 def log_with_timestamp(message: str) -> None:
@@ -360,6 +360,8 @@ def main():
         action="store_true",
         help="Use sequential reading instead of indexed access (slower)",
     )
+
+    print_banner()
 
     args = parser.parse_args()
 

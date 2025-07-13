@@ -18,6 +18,21 @@ import pandas as pd
 from nltk.corpus import stopwords
 from presidio_analyzer import AnalyzerEngine
 
+
+def print_banner() -> None:
+    """Print the ABCDE startup banner."""
+    banner = """
+ █████╗ ██████╗  ██████╗██████╗ ███████╗
+██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔════╝
+███████║██████╔╝██║     ██║  ██║█████╗  
+██╔══██║██╔══██╗██║     ██║  ██║██╔══╝  
+██║  ██║██████╔╝╚██████╗██████╔╝███████╗
+╚═╝  ╚═╝╚═════╝  ╚═════╝╚═════╝ ╚══════╝
+
+"""
+    print(banner)
+
+
 # Download stopwords if not already available
 try:
     nltk.data.find("corpora/stopwords")
