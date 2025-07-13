@@ -466,7 +466,7 @@ class SelfIdentificationDetector:
 
         for category, matches in raw_matches.items():
             # Lowercase all raw matches before further processing
-            lower_matches = [match.lower() for match in matches]
+            lower_matches = [match.lower() for match in matches if match is not None]
             result[category] = {"raw": lower_matches}
 
             if category == "city":
