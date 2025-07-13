@@ -24,4 +24,4 @@ uv run python process_reddit.py \
     --chunk_size "$CHUNK_SIZE" \
     --stages "$STAGES" \
     --task_id "${SLURM_ARRAY_TASK_ID:-0}" \
-    --total_tasks "${SLURM_ARRAY_TASK_COUNT:-1}
+    --total_tasks "${SLURM_ARRAY_TASK_COUNT:-1}"
