@@ -61,7 +61,7 @@ input_file="$INPUT_DIR/$filename"
 
 if [ -f "$input_file" ]; then
     echo "Processing $dataset_name from $input_file..."
-    python3 process_ai_text.py \
+    uv run python3 process_ai_text.py \
         --input_file "$input_file" \
         --output_dir "$OUTPUT_DIR" \
         --dataset_name "$dataset_name"

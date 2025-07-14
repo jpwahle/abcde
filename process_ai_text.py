@@ -56,7 +56,10 @@ def main(input_file: str, output_dir: str, dataset_name: str) -> None:
     try:
         # Detect separator (CSV or TSV)
         sep = "\t" if input_file.endswith(".tsv") else ","
-        df = pd.read_csv(input_file, sep=sep, low_memory=False)
+        if dataset_name == "wildchat-1m":
+            df = pd.read_csv(input_file, sep=sep, low_memory=False, encoding="windows-1252")
+        else:
+            df = pd.read_csv(input_file, sep=sep, low_memory=False)
     except FileNotFoundError:
         log_with_timestamp(f"Error: Input file not found at {input_file}")
         return
