@@ -575,21 +575,30 @@ class SelfIdentificationDetector:
         """Resolve multiple age extractions using clustering and confidence scoring."""
         if not age_matches:
             return None
+
         birth_year_candidates: List[Tuple[int, float]] = []
         for age_str in age_matches:
             try:
-                age_val = int(age_str)
-            except ValueError:
+                # Handle two-digit birth years like '85
+                if age_str.startswith("'") and len(age_str) == 3 and age_str[1:].isdigit():
+                    year_val = int(age_str[1:])
+                    birth_year = 1900 + year_val if year_val > (current_year % 100) else 2000 + year_val
+                    weight = 1.0  # High confidence for explicit birth years
+                else:
+                    age_val = int(age_str)
+                    if 1900 <= age_val <= current_year:
+                        birth_year, weight = age_val, 1.0
+                    elif 13 <= age_val <= 99:
+                        birth_year, weight = current_year - age_val, 0.8
+                    else:
+                        continue
+                birth_year_candidates.append((birth_year, weight))
+            except (ValueError, TypeError):
                 continue
-            if 1900 <= age_val <= current_year:
-                birth_year, weight = age_val, 1.0
-            elif 13 <= age_val <= 99:  # Filter out ages outside 13 <= age <= 99
-                birth_year, weight = current_year - age_val, 0.8
-            else:
-                continue
-            birth_year_candidates.append((birth_year, weight))
+
         if not birth_year_candidates:
             return None
+
         clusters: Dict[int, List[Tuple[int, float]]] = {}
         for by, wt in birth_year_candidates:
             key = next((k for k in clusters if abs(by - k) <= 2), None)
@@ -597,6 +606,7 @@ class SelfIdentificationDetector:
                 key = by
                 clusters[key] = []
             clusters[key].append((by, wt))
+
         best_cluster = None
         best_score = 0.0
         for center, members in clusters.items():
@@ -605,16 +615,18 @@ class SelfIdentificationDetector:
             if score > best_score:
                 best_score = score
                 best_cluster = members
+
         if not best_cluster:
             return None
+
         total_weight = sum(w for _, w in best_cluster)
         weighted_year = sum(by * w for by, w in best_cluster) / total_weight
         resolved_age = current_year - int(round(weighted_year))
         confidence = min(1.0, best_score / (len(age_matches) * 1.0))
-        if not (
-            13 <= resolved_age <= 99
-        ):  # Filter out resolved ages outside 13 <= age <= 99
+
+        if not (13 <= resolved_age <= 99):
             return None
+
         return resolved_age, confidence
 
 
