@@ -45,7 +45,7 @@ from helpers import (
 _detector = SelfIdentificationDetector()
 _pii_detector = PIIDetector()
 _user_ids = set()
-_user_birthyear_map = {}
+_user_demographics_map = {}
 
 
 def log_with_timestamp(message: str) -> None:
@@ -346,7 +346,7 @@ def process_file_stage1(file_path: str) -> list[dict]:
 
 def process_chunk_stage2(task):
     path, lines, chunk_idx, total_chunks_for_task = task
-    global _user_birthyear_map
+    global _user_demographics_map
     results_local: list[dict] = []
     for line in lines:
         try:
@@ -361,12 +361,22 @@ def process_chunk_stage2(task):
         post = extract_columns(entry, None)
         features = apply_linguistic_features(post["selftext"])
         post.update(features)
-        # Compute age at post from birthyear mapping
-        if author in _user_birthyear_map and pd.notna(_user_birthyear_map[author]):
-            birthyear = int(_user_birthyear_map[author])
-            ts = post.get("created_utc")
-            post_year = datetime.utcfromtimestamp(int(ts)).year
-            post["DMGAgeAtPost"] = post_year - birthyear
+        # Add all demographic data from the user map
+        if author in _user_demographics_map:
+            user_demographics = _user_demographics_map[author]
+            for key, value in user_demographics.items():
+                if pd.notna(value):
+                    post[key] = value
+            # Compute age at post from birthyear mapping
+            if "DMGMajorityBirthyear" in user_demographics and pd.notna(
+                user_demographics["DMGMajorityBirthyear"]
+            ):
+                birthyear = int(user_demographics["DMGMajorityBirthyear"])
+                ts = post.get("created_utc")
+                post_year = datetime.utcfromtimestamp(int(ts)).year
+                post["DMGAgeAtPost"] = post_year - birthyear
+            else:
+                post["DMGAgeAtPost"] = None
         else:
             post["DMGAgeAtPost"] = None
         results_local.append(post)
@@ -377,7 +387,7 @@ def process_chunk_stage2(task):
 
 
 def process_file_stage2(file_path) -> list[dict]:
-    global _user_birthyear_map
+    global _user_demographics_map
     results_local: list[dict] = []
     with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -393,12 +403,22 @@ def process_file_stage2(file_path) -> list[dict]:
             post = extract_columns(entry, None)
             features = apply_linguistic_features(post["selftext"])
             post.update(features)
-            # Compute age at post from birthyear mapping
-            if author in _user_birthyear_map and pd.notna(_user_birthyear_map[author]):
-                birthyear = int(_user_birthyear_map[author])
-                ts = post.get("created_utc")
-                post_year = datetime.utcfromtimestamp(int(ts)).year
-                post["DMGAgeAtPost"] = post_year - birthyear
+            # Add all demographic data from the user map
+            if author in _user_demographics_map:
+                user_demographics = _user_demographics_map[author]
+                for key, value in user_demographics.items():
+                    if pd.notna(value):
+                        post[key] = value
+                # Compute age at post from birthyear mapping
+                if "DMGMajorityBirthyear" in user_demographics and pd.notna(
+                    user_demographics["DMGMajorityBirthyear"]
+                ):
+                    birthyear = int(user_demographics["DMGMajorityBirthyear"])
+                    ts = post.get("created_utc")
+                    post_year = datetime.utcfromtimestamp(int(ts)).year
+                    post["DMGAgeAtPost"] = post_year - birthyear
+                else:
+                    post["DMGAgeAtPost"] = None
             else:
                 post["DMGAgeAtPost"] = None
             results_local.append(post)
@@ -641,10 +661,10 @@ def main(
             # Still need to load df_users for birthyear mapping
             df_users = pd.read_csv(self_users_file, sep="\t")
 
-        global _user_birthyear_map
-        _user_birthyear_map = (
-            df_users.set_index("Author")["DMGMajorityBirthyear"].dropna().to_dict()
-        )
+        global _user_demographics_map
+        # Load all user demographics into a dictionary for quick lookups
+        df_users.set_index("Author", inplace=True)
+        _user_demographics_map = df_users.to_dict(orient="index")
 
         posts_path = os.path.join(output_dir, "reddit_users_posts.tsv")
         total_posts = 0

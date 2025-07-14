@@ -50,8 +50,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
 
     self_results = []
     user_ids = set()
-    # Mapping from author to birthyear for age-at-post
-    _user_birthyear_map: dict[str, int] = {}
+    _user_demographics_map: dict[str, dict] = {}
 
     # Stage 1: Detect self-identified users
     if stages in ["1", "both"]:
@@ -116,15 +115,10 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 f"Loaded {len(user_ids)} self-identified users from {self_users_file}"
             )
 
-        # Load birthyear mapping for age calculation
+        # Load all user demographics for age calculation and feature enrichment
         df_users = pd.read_csv(self_users_file, sep="\t")
-        _user_birthyear_map = {
-            str(k): int(v)
-            for k, v in df_users.set_index("Author")["DMGMajorityBirthyear"]
-            .dropna()
-            .to_dict()
-            .items()
-        }
+        df_users.set_index("Author", inplace=True)
+        _user_demographics_map = df_users.to_dict(orient="index")
 
         posts_results: list[dict] = []
 
@@ -149,11 +143,21 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 rec["Author"] = author or ""
                 features = apply_linguistic_features(entry["Tweet"])
                 rec.update(features)
-                # Compute age at post from birthyear mapping (assume birthdate Jan 1)
-                if author in _user_birthyear_map:
-                    birthyear = int(_user_birthyear_map[author])
-                    year = int(rec.get("Year"))
-                    rec["DMGAgeAtPost"] = year - birthyear
+                # Add all demographic data from the user map
+                if author in _user_demographics_map:
+                    user_demographics = _user_demographics_map[author]
+                    for key, value in user_demographics.items():
+                        if pd.notna(value):
+                            rec[key] = value
+                    # Compute age at post from birthyear mapping (assume birthdate Jan 1)
+                    if "DMGMajorityBirthyear" in user_demographics and pd.notna(
+                        user_demographics["DMGMajorityBirthyear"]
+                    ):
+                        birthyear = int(user_demographics["DMGMajorityBirthyear"])
+                        year = int(rec.get("Year"))
+                        rec["DMGAgeAtPost"] = year - birthyear
+                    else:
+                        rec["DMGAgeAtPost"] = None
                 else:
                     rec["DMGAgeAtPost"] = None
                 posts_results.append(rec)
