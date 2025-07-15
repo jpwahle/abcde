@@ -1977,9 +1977,8 @@ def get_all_jsonl_files(path: str) -> List[str]:
 def clean_text_newlines(text: str) -> str:
     if not text:
         return text
-    text = re.sub(r"(?<!\s)\n(?!\s)", " ", text)
-    text = re.sub(r"\n+", " ", text)
-    text = re.sub(r" +", " ", text)
+    text = re.sub(r'[\r\n]+', ' ', text)
+    text = re.sub(r' +', ' ', text)
     return text.strip()
 
 
