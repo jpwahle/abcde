@@ -465,8 +465,7 @@ def main():
             continue
 
         # --- Write Results ---
-        # Use the global chunk_index in the output filename to avoid collisions.
-        output_file = output_dir / f"{file_path.stem}_chunk_{chunk_index:06d}.tsv"
+        output_file = output_dir / f"{file_path.stem}.tsv"
         try:
             base_fields = ["ngram", "year", "match_count", "book_count"]
             feature_fields = sorted(
@@ -478,14 +477,24 @@ def main():
             )
             fieldnames = base_fields + feature_fields
 
-            with open(output_file, "w", newline="", encoding="utf-8") as f:
+            # Append logic
+            if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+                with open(output_file, "r", encoding="utf-8") as f:
+                    header = f.readline().strip().split("\t")
+                fieldnames = header  # Use existing header
+                write_header = False
+            else:
+                write_header = True
+
+            with open(output_file, "a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(
                     f, fieldnames=fieldnames, delimiter="\t", extrasaction="ignore"
                 )
-                writer.writeheader()
+                if write_header:
+                    writer.writeheader()
                 writer.writerows(results)
 
-            log_with_timestamp(f"Results for chunk {chunk_index} written to: {output_file}")
+            log_with_timestamp(f"Appended results for chunk {chunk_index} to: {output_file}")
         except Exception as e:
             log_with_timestamp(f"!!! ERROR writing output for chunk {chunk_index}: {e}")
 
