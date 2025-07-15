@@ -1,0 +1,160 @@
+[
+  {
+    "category": "Analyzing & Evaluating",
+    "terms": [
+      "analyze",
+      "appraise",
+      "assess",
+      "critique",
+      "diagnose",
+      "differentiate",
+      "discern",
+      "discriminate",
+      "distinguish",
+      "evaluate",
+      "investigate",
+      "self-evaluate",
+      "test"
+    ]
+  },
+  {
+    "category": "Creativity & Ideation",
+    "terms": [
+      "brainstorm",
+      "conceptualize",
+      "create",
+      "diverge",
+      "evolve",
+      "fantasize",
+      "ideate",
+      "imagine",
+      "innovate",
+      "invent",
+      "pretend",
+      "visualize"
+    ]
+  },
+  {
+    "category": "General Cognition",
+    "terms": [
+      "contemplate",
+      "deliberate",
+      "focus",
+      "introspect",
+      "reason",
+      "reflect",
+      "regulate",
+      "ruminate"
+    ]
+  },
+  {
+    "category": "Learning & Understanding",
+    "terms": [
+      "accommodate",
+      "assimilate",
+      "associate",
+      "comprehend",
+      "empathize",
+      "explore",
+      "grasp",
+      "internalize",
+      "learn",
+      "study",
+      "understand"
+    ]
+  },
+  {
+    "category": "Decision Making & Judging",
+    "terms": [
+      "calculate",
+      "choose",
+      "decide",
+      "deduce",
+      "determine",
+      "estimate",
+      "infer",
+      "judge",
+      "prioritize",
+      "resolve"
+    ]
+  },
+  {
+    "category": "Problem Solving",
+    "terms": [
+      "plan",
+      "revise",
+      "solve",
+      "strategize",
+      "troubleshoot"
+    ]
+  },
+  {
+    "category": "Higher-Order Thinking",
+    "terms": [
+      "abstract",
+      "categorize",
+      "classify",
+      "generalize",
+      "hypothesize",
+      "interpret",
+      "synthesize"
+    ]
+  },
+  {
+    "category": "Confused or Uncertain Thinking",
+    "terms": [
+      "doubt",
+      "self-question"
+    ]
+  },
+  {
+    "category": "Memory & Recall",
+    "terms": [
+      "consolidate",
+      "encode",
+      "forget",
+      "memorize",
+      "recall",
+      "rehearse",
+      "remember",
+      "retrieve"
+    ]
+  },
+  {
+    "category": "Perception & Observation",
+    "terms": [
+      "detect",
+      "identify",
+      "label",
+      "notice",
+      "observe",
+      "perceive",
+      "recognize",
+      "scan",
+      "spot",
+      "trace"
+    ]
+  },
+  {
+    "category": "Prediction & Forecasting",
+    "terms": [
+      "anticipate",
+      "forecast",
+      "forethink",
+      "predict",
+      "project"
+    ]
+  },
+  {
+    "category": "Explanation & Articulation",
+    "terms": [
+      "articulate",
+      "define",
+      "describe",
+      "discuss",
+      "elaborate",
+      "explain",
+      "verbalize"
+    ]
+  }
+]

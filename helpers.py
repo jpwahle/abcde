@@ -11,7 +11,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Pattern, Tuple
+from typing import Any, Callable, Dict, List, Optional, Pattern, Tuple, Set
 
 import nltk
 import pandas as pd
@@ -913,6 +913,19 @@ def _load_nrc_warmth_lexicon() -> Dict[str, int]:
     )
 
 
+def _load_cog_lexicon() -> Dict[str, Set[str]]:
+    import json
+    path = _DATA_DIR / "COG-thinking-words-categorized.json"
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    cog_dict: Dict[str, Set[str]] = {}
+    for item in data:
+        cat = item["category"].replace(" ", "").replace("&", "").replace("/", "").replace(",", "")
+        terms = {term.lower() for term in item["terms"]}
+        cog_dict[cat] = terms
+    return cog_dict
+
+
 # -------------------- #
 # Demographic Data Loading
 # -------------------- #
@@ -1243,6 +1256,7 @@ emotions = [
     "surprise",
     "trust",
 ]
+cog_dict = _load_cog_lexicon()
 
 
 def compute_vad_and_emotions(
@@ -1509,6 +1523,18 @@ def compute_tense_features(
     }
 
 
+def compute_cognitive_features(
+    text: str, cog_dict: Dict[str, Set[str]]
+) -> Dict[str, int]:
+    if not isinstance(text, str) or not text.strip():
+        return {f"COGHas{cat}Word": 0 for cat in cog_dict}
+    words = set(text.lower().split())
+    return {
+        f"COGHas{cat}Word": int(bool(words & terms))
+        for cat, terms in cog_dict.items()
+    }
+
+
 # -------------------- #
 # TUSC-specific Helper
 # -------------------- #
@@ -1571,6 +1597,7 @@ def apply_linguistic_features(
     features.update(compute_individual_pronouns(text))
     features.update(compute_prefixed_body_part_mentions(text, BODY_PARTS))
     features.update(compute_tense_features(text, tense_dict))
+    features.update(compute_cognitive_features(text, cog_dict))
     return features
 
 
