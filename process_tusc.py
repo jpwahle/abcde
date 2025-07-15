@@ -18,6 +18,7 @@ from helpers import (
     ensure_output_directory,
     write_results_to_csv,
     print_banner,
+    aggregate_user_demographics,
 )
 
 
@@ -117,8 +118,9 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
 
         # Load all user demographics for age calculation and feature enrichment
         df_users = pd.read_csv(self_users_file, sep="\t")
-        df_users.set_index("Author", inplace=True)
-        _user_demographics_map = df_users.to_dict(orient="index")
+
+        # Aggregate demographics per user to handle duplicates
+        df_users = aggregate_user_demographics(df_users, data_source="tusc")
 
         posts_results: list[dict] = []
 
@@ -144,8 +146,8 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 features = apply_linguistic_features(entry["Tweet"])
                 rec.update(features)
                 # Add all demographic data from the user map
-                if author in _user_demographics_map:
-                    user_demographics = _user_demographics_map[author]
+                if author in df_users.set_index("Author").to_dict(orient="index"):
+                    user_demographics = df_users.set_index("Author").to_dict(orient="index")[author]
                     for key, value in user_demographics.items():
                         if pd.notna(value):
                             rec[key] = value

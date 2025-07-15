@@ -30,6 +30,7 @@ from datetime import datetime
 from helpers import (
     SelfIdentificationDetector,
     PIIDetector,
+    aggregate_user_demographics,
     append_results_to_csv,
     apply_linguistic_features,
     detect_self_identification_with_resolved_age,
@@ -40,6 +41,12 @@ from helpers import (
     format_demographic_detections_for_output,
     get_all_jsonl_files,
 )
+
+from collections import Counter
+import datetime
+import pandas as pd
+from typing import Optional
+
 
 # Global detector for stage1 self-identification detection
 _detector = SelfIdentificationDetector()
@@ -466,6 +473,7 @@ def process_file_pii(file_path: str) -> list[dict]:
     return results_local
 
 
+
 def main(
     input_dir: str,
     output_dir: str,
@@ -646,6 +654,9 @@ def main(
             # Load the TSV once and use it for both user IDs and birthyear mapping
             df_users = pd.read_csv(self_users_file, sep="\t")
 
+            # Aggregate demographics per user to handle duplicates
+            df_users = aggregate_user_demographics(df_users, data_source="reddit")
+
             # Extract user IDs from the dataframe (same logic as load_self_identified_users)
             user_ids = set()
             for col in ["author", "Author", "userID"]:
@@ -660,6 +671,9 @@ def main(
             _user_ids = set(self_user_ids)
             # Still need to load df_users for birthyear mapping
             df_users = pd.read_csv(self_users_file, sep="\t")
+
+            # Aggregate demographics per user to handle duplicates
+            df_users = aggregate_user_demographics(df_users, data_source="reddit")
 
         global _user_demographics_map
         # Load all user demographics into a dictionary for quick lookups

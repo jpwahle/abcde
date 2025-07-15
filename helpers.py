@@ -17,6 +17,7 @@ import nltk
 import pandas as pd
 from nltk.corpus import stopwords
 from presidio_analyzer import AnalyzerEngine
+from collections import Counter
 
 
 def print_banner() -> None:
@@ -2121,3 +2122,78 @@ def detect_pii_in_post(
     post_info.update(pii_formatted)
 
     return post_info
+
+
+def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFrame:
+    """
+    Aggregate demographics per author using majority vote across multiple self-identification posts.
+    Handles birthyear resolution by collecting all raw extractions and re-resolving with the latest post year.
+    For other fields, uses majority vote (mode) for mapped fields and most common value for raw extractions.
+    """
+    detector = SelfIdentificationDetector()
+
+    def get_post_year(group):
+        if data_source == "tusc" and "PostYear" in group.columns:
+            return group["PostYear"].max()
+        elif data_source == "reddit" and "PostCreatedUtc" in group.columns:
+            years = []
+            for utc in group["PostCreatedUtc"].dropna():
+                try:
+                    years.append(datetime.utcfromtimestamp(int(utc)).year)
+                except (ValueError, TypeError):
+                    pass
+            return max(years) if years else datetime.now().year
+        else:
+            return datetime.now().year
+
+    def aggregate_group(group):
+        agg_row = {"Author": group.name}
+
+        # Special handling for birthyear: collect all raw extractions, resolve using max post year
+        all_raw_birthyears = []
+        for val in group.get("DMGRawBirthyearExtractions", pd.Series()).dropna():
+            all_raw_birthyears.extend(str(val).split("|"))
+        all_raw_birthyears = [r.strip() for r in all_raw_birthyears if r.strip()]
+
+        if all_raw_birthyears:
+            ref_year = get_post_year(group)
+            resolution = detector.resolve_multiple_ages(all_raw_birthyears, current_year=ref_year)
+            if resolution and resolution[1] >= 0.5:
+                resolved_age, _ = resolution
+                agg_row["DMGMajorityBirthyear"] = ref_year - resolved_age
+            else:
+                agg_row["DMGMajorityBirthyear"] = pd.NA
+            agg_row["DMGRawBirthyearExtractions"] = "|".join(sorted(set(all_raw_birthyears)))
+        else:
+            agg_row["DMGMajorityBirthyear"] = pd.NA
+            agg_row["DMGRawBirthyearExtractions"] = pd.NA
+
+        # For other DMG fields
+        for col in [c for c in group.columns if c.startswith("DMG") and c not in ["DMGMajorityBirthyear", "DMGRawBirthyearExtractions"]]:
+            if "Raw" in col:
+                # Most common raw value
+                all_items = []
+                for val in group[col].dropna():
+                    all_items.extend(str(val).split("|"))
+                all_items = [item.strip() for item in all_items if item.strip()]
+                if all_items:
+                    counts = Counter(all_items)
+                    most_common = counts.most_common(1)
+                    agg_row[col] = most_common[0][0] if most_common else pd.NA
+                else:
+                    agg_row[col] = pd.NA
+            else:
+                # Mode for mapped/non-raw fields
+                series = group[col].dropna()
+                if not series.empty:
+                    mode = series.mode()
+                    agg_row[col] = mode[0] if not mode.empty else series.iloc[0]
+                else:
+                    agg_row[col] = pd.NA
+
+        return pd.Series(agg_row)
+
+    # Group by Author and apply aggregation
+    aggregated = df.groupby("Author").apply(aggregate_group).reset_index(drop=True)
+
+    return aggregated
