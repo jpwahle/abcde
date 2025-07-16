@@ -13,8 +13,8 @@ import pathlib
 import time
 from typing import Optional
 from helpers import print_banner
-
 import pandas as pd
+from datetime import datetime
 
 try:
     import numpy as np
@@ -25,7 +25,6 @@ except ImportError:
     FAST_IO_AVAILABLE = False
     print("Warning: numpy and/or orjson not available. Falling back to slower I/O.")
 
-from datetime import datetime
 
 from helpers import (
     SelfIdentificationDetector,
@@ -41,12 +40,6 @@ from helpers import (
     format_demographic_detections_for_output,
     get_all_jsonl_files,
 )
-
-from collections import Counter
-import datetime
-import pandas as pd
-from typing import Optional
-
 
 # Global detector for stage1 self-identification detection
 _detector = SelfIdentificationDetector()
