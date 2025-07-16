@@ -15,6 +15,7 @@ from typing import Optional
 from helpers import print_banner
 import pandas as pd
 from datetime import datetime
+import random
 
 try:
     import numpy as np
@@ -644,12 +645,25 @@ def main(
         # If we didn't run stage 1, or to load birthyear mapping, load user IDs and birthyear info
         self_users_file = os.path.join(output_dir, "reddit_users.tsv")
         if stages == "2":
+
+            # Sleep for a random amount of time to avoid overloading the filesystem
+            task_id = int(os.environ['SLURM_ARRAY_TASK_ID'])
+            M = 10  # Max concurrent loads; tune if needed (e.g., 20 if filesystem handles more)
+            T = 180  # Load time in seconds (your 90s + buffer)
+            group_size = M
+            group_id = task_id // group_size
+            sleep_time = group_id * T + random.uniform(0, 10)  # Group delay + small jitter
+            time.sleep(sleep_time)
+
+            log_with_timestamp(f"Loading {self_users_file}")
             # Load the TSV once and use it for both user IDs and birthyear mapping
             df_users = pd.read_csv(self_users_file, sep="\t")
 
+            log_with_timestamp(f"Aggregating demographics for {len(df_users)} users")
             # Aggregate demographics per user to handle duplicates
             df_users = aggregate_user_demographics(df_users, data_source="reddit")
 
+            log_with_timestamp(f"Extracting user IDs from {len(df_users)} users")
             # Extract user IDs from the dataframe (same logic as load_self_identified_users)
             user_ids = set()
             for col in ["author", "Author", "userID"]:
