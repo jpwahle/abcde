@@ -2194,6 +2194,6 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
         return pd.Series(agg_row)
 
     # Group by Author and apply aggregation
-    aggregated = df.groupby("Author").apply(aggregate_group).reset_index(drop=True)
+    aggregated = df.groupby("Author").apply(aggregate_group, include_groups=False).reset_index(drop=True)
 
     return aggregated
