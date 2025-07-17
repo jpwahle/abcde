@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --array=0-15
 
-set -e
+set -euxo pipefail
 
 # Check for SLURM_ARRAY_TASK_ID
 if [ -z "$SLURM_ARRAY_TASK_ID" ]; then

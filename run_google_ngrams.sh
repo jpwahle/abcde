@@ -7,6 +7,8 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --array=0-256
 
+set -euxo pipefail
+
 # Create logs directory if it doesn't exist
 mkdir -p logs
 
