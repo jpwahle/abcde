@@ -32,7 +32,7 @@ def load_self_identified_users(csv_path: str) -> set:
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"Self-identified users file not found: {csv_path}")
 
-    df = pd.read_csv(csv_path, sep="\t")
+    df = pd.read_csv(csv_path, sep="\t", dtype=str)
     user_ids = set()
 
     # Handle different possible column names
@@ -117,7 +117,9 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
             )
 
         # Load all user demographics for age calculation and feature enrichment
-        df_users = pd.read_csv(self_users_file, sep="\t")
+        df_users = pd.read_csv(self_users_file, sep="\t", dtype=str)
+        df_users["Author"] = df_users["Author"].astype(str)
+        user_map = df_users.set_index("Author").to_dict(orient="index")
 
         # Aggregate demographics per user to handle duplicates
         df_users = aggregate_user_demographics(df_users, data_source="tusc")
@@ -146,8 +148,8 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                 features = apply_linguistic_features(entry["Tweet"])
                 rec.update(features)
                 # Add all demographic data from the user map
-                if author in df_users.set_index("Author").to_dict(orient="index"):
-                    user_demographics = df_users.set_index("Author").to_dict(orient="index")[author]
+                if author in user_map:
+                    user_demographics = user_map[author]
                     for key, value in user_demographics.items():
                         if pd.notna(value):
                             rec[key] = value
