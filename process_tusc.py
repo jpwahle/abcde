@@ -39,10 +39,38 @@ def load_self_identified_users(csv_path: str) -> set:
     for col in ["Author", "UserID", "userID"]:
         if col in df.columns:
             user_ids.update(df[col].dropna().astype(str).tolist())
-    # Normalize IDs as stripped, non-empty strings
-    user_ids = {uid.strip() for uid in user_ids if uid.strip()}
-    return user_ids
+    # Normalize IDs as stripped, non-empty strings and remove potential trailing '.0'
+    normalized_ids = set()
+    for uid in user_ids:
+        if uid is None:
+            continue
+        s = str(uid).strip()
+        # If the string ends with '.0' and the rest are digits, strip the decimal part
+        if s.endswith(".0") and s[:-2].isdigit():
+            s = s[:-2]
+        if s:
+            normalized_ids.add(s)
 
+    return normalized_ids
+
+
+
+def get_author(entry: dict) -> str:
+    """
+    Return the user identifier as a clean string.
+    Tries Author → UserID → userID → userName, skips NaN/None/''.
+    """
+    for key in ("Author", "UserID", "userID", "userName"):
+        val = entry.get(key)
+        if val is None or pd.isna(val):           # filters out np.nan
+            continue
+        # If it is a float that represents an int (e.g. 3.0) cast to int first
+        if isinstance(val, float) and val.is_integer():
+            val = int(val)
+        s = str(val).strip()
+        if s and s.lower() != "nan":
+            return s
+    return ""
 
 def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None:
     print_banner()
@@ -93,16 +121,8 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         print(f"Found {len(self_results)} self-identified users")
 
         # Extract user IDs for stage 2 (normalized to strings)
-        user_ids = {
-            str(
-                r.get("Author")
-                or r.get("UserID")
-                or r.get("userID")
-                or r.get("userName")
-                or ""
-            ).strip()
-            for r in self_results
-        }
+        user_ids = {get_author(r) for r in self_results}
+        user_ids.discard("")
 
     # Stage 2: Collect posts from self-identified users and compute features
     if stages in ["2", "both"]:
@@ -119,10 +139,12 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         # Load all user demographics for age calculation and feature enrichment
         df_users = pd.read_csv(self_users_file, sep="\t", dtype=str)
         df_users["Author"] = df_users["Author"].astype(str)
-        user_map = df_users.set_index("Author").to_dict(orient="index")
 
         # Aggregate demographics per user to handle duplicates
         df_users = aggregate_user_demographics(df_users, data_source="tusc")
+        
+        # Create user map after aggregation to ensure unique authors
+        user_map = df_users.set_index("Author").to_dict(orient="index")
 
         posts_results: list[dict] = []
 
@@ -137,10 +159,7 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
             for _, row in df.iterrows():
                 entry = row.to_dict()
                 # Only include posts by self-identified users
-                author_val = (
-                    entry.get("UserID") or entry.get("userID") or entry.get("Author")
-                )
-                author = str(author_val).strip() if author_val is not None else ""
+                author = get_author(entry)
                 if author not in user_ids:
                     continue
                 rec = entry.copy()
@@ -161,9 +180,9 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                         year = int(rec.get("Year"))
                         rec["DMGAgeAtPost"] = year - birthyear
                     else:
-                        rec["DMGAgeAtPost"] = None
+                        rec["DMGAgeAtPost"] = ""
                 else:
-                    rec["DMGAgeAtPost"] = None
+                    rec["DMGAgeAtPost"] = ""
                 posts_results.append(rec)
 
         write_results_to_csv(

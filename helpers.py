@@ -1616,7 +1616,14 @@ def flatten_result_to_csv_row(
     row: Dict[str, Any] = {}
     # Author column
     if data_source == "tusc":
-        row["Author"] = result.get("UserID", "") or result.get("userID", "") or ""
+        # Normalize numeric user IDs to plain integer strings (e.g., avoid "123.0")
+        uid_raw = result.get("UserID", "") or result.get("userID", "") or ""
+        # Convert common numeric types to string first
+        uid_str = str(uid_raw).strip()
+        # Strip trailing ".0" that can appear when floats are stringified
+        if uid_str.endswith(".0") and uid_str[:-2].isdigit():
+            uid_str = uid_str[:-2]
+        row["Author"] = uid_str
     else:
         row["Author"] = result.get("author", "") or ""
 
@@ -1628,14 +1635,9 @@ def flatten_result_to_csv_row(
                 ref_year = int(result.get("Year", ""))
             except (TypeError, ValueError):
                 ref_year = parse_tusc_created_at_year(result.get("createdAt", ""))
-                if ref_year is None:
-                    ref_year = datetime.now().year
         else:
-            try:
-                ts = result.get("post", {}).get("created_utc")
-                ref_year = datetime.utcfromtimestamp(int(ts)).year
-            except Exception:
-                ref_year = datetime.now().year
+            ts = result.get("post", {}).get("created_utc")
+            ref_year = datetime.utcfromtimestamp(int(ts)).year
 
         raw_matches: List[str] = []
         majority_birthyear: Optional[int] = None
