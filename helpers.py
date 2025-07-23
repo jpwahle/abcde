@@ -2135,8 +2135,29 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
     detector = SelfIdentificationDetector()
 
     def get_post_year(group):
-        if data_source == "tusc" and "PostYear" in group.columns:
-            return group["PostYear"].max()
+        if data_source == "tusc":
+            # 1) Try numeric PostYear column
+            if "PostYear" in group.columns:
+                yrs = pd.to_numeric(group["PostYear"], errors="coerce").dropna().astype(int)
+                if not yrs.empty:
+                    return yrs.max()
+            # 2) Try numeric Year column (some datasets keep original name)
+            if "Year" in group.columns:
+                yrs = pd.to_numeric(group["Year"], errors="coerce").dropna().astype(int)
+                if not yrs.empty:
+                    return yrs.max()
+            # 3) Parse from createdAt / PostCreatedAt strings
+            year_candidates = []
+            for col in ["PostCreatedAt", "createdAt"]:
+                if col in group.columns:
+                    for val in group[col].dropna():
+                        y = parse_tusc_created_at_year(str(val))
+                        if y is not None:
+                            year_candidates.append(y)
+            if year_candidates:
+                return max(year_candidates)
+            # If we reach here, we failed to find any year information – raise error
+            raise ValueError("Unable to determine post year for TUSC group; all rows missing valid year information")
         elif data_source == "reddit" and "PostCreatedUtc" in group.columns:
             years = []
             for utc in group["PostCreatedUtc"].dropna():
@@ -2144,9 +2165,11 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
                     years.append(datetime.utcfromtimestamp(int(utc)).year)
                 except (ValueError, TypeError):
                     pass
-            return max(years) if years else datetime.now().year
+            if years:
+                return max(years)
+            raise ValueError("Unable to determine post year for Reddit group; all rows missing valid timestamp")
         else:
-            return datetime.now().year
+            raise ValueError("Unsupported data source or missing date columns")
 
     def aggregate_group(group):
         agg_row = {"Author": group.name}
