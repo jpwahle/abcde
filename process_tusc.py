@@ -4,6 +4,8 @@ Process TUSC pipeline: detect self-identified users and collect posts with lingu
 """
 import argparse
 import os
+import signal
+import psutil
 from datetime import datetime
 
 import pandas as pd
@@ -17,9 +19,42 @@ from helpers import (
     detect_self_identification_in_tusc_entry_with_mappings,
     ensure_output_directory,
     write_results_to_csv,
+    append_results_to_csv,
     print_banner,
     aggregate_user_demographics,
 )
+
+
+# Timeout wrapper for debugging pathological cases
+class Timeout(Exception):
+    pass
+
+def timeout(sec):
+    def deco(fn):
+        def _wrap(*a, **kw):
+            def handler(signum, frame):
+                raise Timeout(f"Function {fn.__name__} timed out after {sec} seconds")
+            old = signal.signal(signal.SIGALRM, handler)
+            signal.alarm(sec)
+            try:
+                return fn(*a, **kw)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old)
+        return _wrap
+    return deco
+
+# Create safe wrapped versions of potentially problematic functions
+safe_detect_self_identification = timeout(5)(detect_self_identification_in_tusc_entry_with_mappings)
+safe_apply_linguistic_features = timeout(5)(apply_linguistic_features)
+
+def log_memory_usage(batch_num=None):
+    """Log current memory usage"""
+    memory = psutil.virtual_memory()
+    swap = psutil.swap_memory()
+    prefix = f"Batch {batch_num}: " if batch_num is not None else ""
+    print(f"{prefix}Memory: {memory.percent:.1f}% used ({memory.used/(1024**3):.1f}GB / {memory.total/(1024**3):.1f}GB), "
+          f"Swap: {swap.percent:.1f}% used ({swap.used/(1024**3):.1f}GB / {swap.total/(1024**3):.1f}GB)")
 
 
 def determine_split(input_file: str) -> str:
@@ -72,14 +107,19 @@ def get_author(entry: dict) -> str:
             return s
     return ""
 
-def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None:
+def main(input_file: str, output_dir: str, chunk_size: int, stages: str, task_id: int = 0, total_tasks: int = 1) -> None:
     print_banner()
     ensure_output_directory(os.path.join(output_dir, "_"))
     split = determine_split(input_file)
 
-    self_results = []
+    # Log task information for array jobs
+    if total_tasks > 1:
+        print(f"Task {task_id + 1}/{total_tasks}: Processing TUSC {split} data")
+        print(f"Input file: {input_file}")
+        print(f"Chunk size: {chunk_size}")
+        print(f"Stages: {stages}")
+
     user_ids = set()
-    _user_demographics_map: dict[str, dict] = {}
 
     # Stage 1: Detect self-identified users
     if stages in ["1", "both"]:
@@ -91,72 +131,170 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
         # Calculate total batches for progress bar
         total_rows = parquet_file.metadata.num_rows
         total_batches = (total_rows // chunk_size) + 1
+        
+        # Calculate how many batches this task will process
+        batches_for_this_task = sum(1 for batch_idx in range(total_batches) if batch_idx % total_tasks == task_id)
+        
+        if total_tasks > 1:
+            print(f"Task {task_id + 1}/{total_tasks}: Will process {batches_for_this_task} out of {total_batches} total batches")
 
-        for batch in tqdm(
-            parquet_file.iter_batches(batch_size=chunk_size), total=total_batches
-        ):
+        # Streaming setup to avoid memory issues
+        BUFFER_SIZE = 200_000  # Write to disk every 200k results
+        buffered_results = []
+        written_count = 0
+        timeout_count = 0
+        processed_batches = 0
+
+        # Log initial memory state
+        print("Initial memory state:")
+        log_memory_usage()
+
+        for batch_idx, batch in enumerate(tqdm(
+            parquet_file.iter_batches(batch_size=chunk_size), 
+            total=total_batches,
+            desc=f"Task {task_id + 1}/{total_tasks} Stage 1"
+        )):
+            # Skip batches not assigned to this task
+            if batch_idx % total_tasks != task_id:
+                continue
+                
+            processed_batches += 1
             df = batch.to_pandas()
-            for _, row in df.iterrows():
+            
+            # Log memory usage every 50 processed batches (not every 50 total batches)
+            if processed_batches % 50 == 0:
+                log_memory_usage(f"Task {task_id + 1}/{total_tasks} - Processed batch {processed_batches}")
+            
+            for row_idx, row in df.iterrows():
                 entry = row.to_dict()
-                age_matches, formatted_demographics = (
-                    detect_self_identification_in_tusc_entry_with_mappings(
+                try:
+                    age_matches, formatted_demographics = safe_detect_self_identification(
                         entry, detector
                     )
-                )
+                except Timeout as e:
+                    print(f"TIMEOUT in batch {batch_idx}, row {row_idx}: {e}")
+                    print(f"Tweet content length: {len(str(entry.get('Tweet', '')))}")
+                    print(f"Tweet preview: {str(entry.get('Tweet', ''))[:200]}...")
+                    timeout_count += 1
+                    continue
+                except Exception as e:
+                    print(f"ERROR in batch {batch_idx}, row {row_idx}: {e}")
+                    continue
+                
                 if not age_matches:
                     continue
                 rec = entry.copy()
                 rec["self_identification"] = age_matches
                 rec.update(formatted_demographics)
-                self_results.append(rec)
+                buffered_results.append(rec)
 
-        write_results_to_csv(
-            self_results,
-            os.path.join(output_dir, f"{split}_users.tsv"),
-            output_tsv=True,
-            data_source="tusc",
-            split=split,
-        )
+                # Stream to disk when buffer is full
+                if len(buffered_results) >= BUFFER_SIZE:
+                    output_path = os.path.join(output_dir, f"{split}_users.tsv")
+                    append_results_to_csv(
+                        buffered_results,
+                        output_path,
+                        output_tsv=True,
+                        data_source="tusc",
+                        split=split,
+                    )
+                    written_count += len(buffered_results)
+                    print(f"Task {task_id + 1}/{total_tasks}: Streamed {len(buffered_results)} results to disk. Total written: {written_count}")
+                    buffered_results.clear()
+                    
+                    # Log memory after flush
+                    log_memory_usage(f"Task {task_id + 1}/{total_tasks} - Batch {processed_batches} (after flush)")
 
-        print(f"Found {len(self_results)} self-identified users")
+        # Write remaining buffered results
+        if buffered_results:
+            output_path = os.path.join(output_dir, f"{split}_users.tsv")
+            append_results_to_csv(
+                buffered_results,
+                output_path,
+                output_tsv=True,
+                data_source="tusc",
+                split=split,
+            )
+            written_count += len(buffered_results)
 
-        # Extract user IDs for stage 2 (normalized to strings)
-        user_ids = {get_author(r) for r in self_results}
-        user_ids.discard("")
+        total_found = written_count
+        print(f"Task {task_id + 1}/{total_tasks}: Found {total_found} self-identified users")
+        if timeout_count > 0:
+            print(f"WARNING: {timeout_count} entries timed out during processing")
+
+        # For stage 2, we need to load the user IDs from the shared file
+        if stages == "both":
+            users_file = os.path.join(output_dir, f"{split}_users.tsv")
+            user_ids = load_self_identified_users(users_file)
+            print(f"Task {task_id + 1}/{total_tasks}: Loaded {len(user_ids)} user IDs for stage 2")
+        
+        # Final memory state
+        print(f"Task {task_id + 1}/{total_tasks}: Final stage 1 memory state:")
+        log_memory_usage()
 
     # Stage 2: Collect posts from self-identified users and compute features
     if stages in ["2", "both"]:
         print("Stage 2: Collect posts from self-identified users and compute features")
 
-        # If we didn't run stage 1, load user IDs and birthyear mapping from existing file
-        self_users_file = os.path.join(output_dir, f"{split}_users.tsv")
+        # If we didn't run stage 1, load user IDs from shared file
         if stages == "2":
-            user_ids = load_self_identified_users(self_users_file)
-            print(
-                f"Loaded {len(user_ids)} self-identified users from {self_users_file}"
-            )
+            users_file = os.path.join(output_dir, f"{split}_users.tsv")
+            if not os.path.exists(users_file):
+                raise FileNotFoundError(f"Self-identified users file not found: {users_file}")
+            
+            user_ids = load_self_identified_users(users_file)
+            print(f"Task {task_id + 1}/{total_tasks}: Loaded {len(user_ids)} self-identified users from {users_file}")
+        else:
+            users_file = os.path.join(output_dir, f"{split}_users.tsv")
 
         # Load all user demographics for age calculation and feature enrichment
-        df_users = pd.read_csv(self_users_file, sep="\t", dtype=str)
+        df_users = pd.read_csv(users_file, sep="\t", dtype=str)
         df_users["Author"] = df_users["Author"].astype(str)
 
         # Aggregate demographics per user to handle duplicates
         df_users = aggregate_user_demographics(df_users, data_source="tusc")
-        
+
         # Create user map after aggregation to ensure unique authors
         user_map = df_users.set_index("Author").to_dict(orient="index")
 
-        posts_results: list[dict] = []
+        # Streaming setup for stage 2
+        BUFFER_SIZE = 100_000  # Smaller buffer for posts (they have more features)
+        buffered_posts = []
+        written_posts = 0
+        timeout_count_stage2 = 0
+        processed_batches_stage2 = 0
 
         parquet_file = pq.ParquetFile(input_file)
         total_rows = parquet_file.metadata.num_rows
         total_batches = (total_rows // chunk_size) + 1
+        
+        # Calculate how many batches this task will process
+        batches_for_this_task = sum(1 for batch_idx in range(total_batches) if batch_idx % total_tasks == task_id)
+        
+        if total_tasks > 1:
+            print(f"Task {task_id + 1}/{total_tasks}: Will process {batches_for_this_task} out of {total_batches} total batches for stage 2")
 
-        for batch in tqdm(
-            parquet_file.iter_batches(batch_size=chunk_size), total=total_batches
-        ):
+        # Log initial memory state for stage 2
+        print("Stage 2 initial memory state:")
+        log_memory_usage()
+
+        for batch_idx, batch in enumerate(tqdm(
+            parquet_file.iter_batches(batch_size=chunk_size), 
+            total=total_batches,
+            desc=f"Task {task_id + 1}/{total_tasks} Stage 2"
+        )):
+            # Skip batches not assigned to this task
+            if batch_idx % total_tasks != task_id:
+                continue
+                
+            processed_batches_stage2 += 1
             df = batch.to_pandas()
-            for _, row in df.iterrows():
+            
+            # Log memory usage every 50 processed batches
+            if processed_batches_stage2 % 50 == 0:
+                log_memory_usage(f"Task {task_id + 1}/{total_tasks} Stage2 - Processed batch {processed_batches_stage2}")
+            
+            for row_idx, row in df.iterrows():
                 entry = row.to_dict()
                 # Only include posts by self-identified users
                 author = get_author(entry)
@@ -164,7 +302,21 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                     continue
                 rec = entry.copy()
                 rec["Author"] = author or ""
-                features = apply_linguistic_features(entry["Tweet"])
+                
+                try:
+                    features = safe_apply_linguistic_features(entry["Tweet"])
+                except Timeout as e:
+                    print(f"TIMEOUT in stage 2 batch {batch_idx}, row {row_idx}: {e}")
+                    print(f"Author: {author}")
+                    print(f"Tweet content length: {len(str(entry.get('Tweet', '')))}")
+                    print(f"Tweet preview: {str(entry.get('Tweet', ''))[:200]}...")
+                    timeout_count_stage2 += 1
+                    continue
+                except Exception as e:
+                    print(f"ERROR in stage 2 batch {batch_idx}, row {row_idx}: {e}")
+                    print(f"Author: {author}")
+                    continue
+                
                 rec.update(features)
                 # Add all demographic data from the user map
                 if author in user_map:
@@ -183,17 +335,44 @@ def main(input_file: str, output_dir: str, chunk_size: int, stages: str) -> None
                         rec["DMGAgeAtPost"] = ""
                 else:
                     rec["DMGAgeAtPost"] = ""
-                posts_results.append(rec)
+                buffered_posts.append(rec)
 
-        write_results_to_csv(
-            posts_results,
-            os.path.join(output_dir, f"{split}_user_posts.tsv"),
-            output_tsv=True,
-            data_source="tusc",
-            split=split,
-        )
+                # Stream to disk when buffer is full
+                if len(buffered_posts) >= BUFFER_SIZE:
+                    output_path = os.path.join(output_dir, f"{split}_user_posts.tsv")
+                    append_results_to_csv(
+                        buffered_posts,
+                        output_path,
+                        output_tsv=True,
+                        data_source="tusc",
+                        split=split,
+                    )
+                    written_posts += len(buffered_posts)
+                    print(f"Task {task_id + 1}/{total_tasks}: Streamed {len(buffered_posts)} posts to disk. Total written: {written_posts}")
+                    buffered_posts.clear()
+                    
+                    # Log memory after flush
+                    log_memory_usage(f"Task {task_id + 1}/{total_tasks} Stage2 - Batch {processed_batches_stage2} (after flush)")
 
-        print(f"Found {len(posts_results)} posts from self-identified users")
+        # Write remaining buffered posts
+        if buffered_posts:
+            output_path = os.path.join(output_dir, f"{split}_user_posts.tsv")
+            append_results_to_csv(
+                buffered_posts,
+                output_path,
+                output_tsv=True,
+                data_source="tusc",
+                split=split,
+            )
+            written_posts += len(buffered_posts)
+
+        print(f"Task {task_id + 1}/{total_tasks}: Found {written_posts} posts from self-identified users")
+        if timeout_count_stage2 > 0:
+            print(f"WARNING: {timeout_count_stage2} entries timed out during stage 2 processing")
+        
+        # Final memory state
+        print(f"Task {task_id + 1}/{total_tasks}: Final stage 2 memory state:")
+        log_memory_usage()
 
 
 if __name__ == "__main__":
@@ -216,5 +395,17 @@ if __name__ == "__main__":
         default="both",
         help="Which stages to run: '1' for self-identification detection only, '2' for post collection only, 'both' for complete pipeline",
     )
+    parser.add_argument(
+        "--task_id",
+        type=int,
+        default=0,
+        help="ID of the current task (for array jobs)",
+    )
+    parser.add_argument(
+        "--total_tasks",
+        type=int,
+        default=1,
+        help="Total number of tasks (for array jobs)",
+    )
     args = parser.parse_args()
-    main(args.input_file, args.output_dir, args.chunk_size, args.stages)
+    main(args.input_file, args.output_dir, args.chunk_size, args.stages, args.task_id, args.total_tasks)
