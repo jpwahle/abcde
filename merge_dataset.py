@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+import pandas as pd
+import dask
+import dask.dataframe as dd
+from dask.diagnostics import ProgressBar
+from multiprocessing.pool import ThreadPool
+
+# --- LOW-RAM CONFIG (edit as needed) ---
+BASE_DIR = Path("/Users/jp/Desktop/abcde_v1")
+FILES = [
+    # "ai-gen/pippa_data_features.tsv",
+    # "ai-gen/raid_data_features.tsv",
+    # "ai-gen/apt-paraphrase-dataset-gpt-3_features.tsv",
+    # "ai-gen/m4_data_features.tsv",
+    # "ai-gen/tinystories_data_features.tsv",
+    "blogs/tiergroup-10/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-11/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-9/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-7/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-6/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-8/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-13/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-12/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-3/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-4/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-5/spinner_blog_posts_features.tsv",
+    "blogs/tiergroup-2/spinner_blog_posts_features.tsv",
+    "reddit/reddit_users_posts.tsv",
+    "books/googlebooks-eng-fiction-top1M-5gram.tsv",
+    "tusc/country_user_posts.tsv",
+    "tusc/city_user_posts.tsv",
+    "ai-gen/luar_lwd_data_features.tsv",
+    "ai-gen/mage_data_features.tsv",
+    "ai-gen/hh-rlhf_data_features.tsv",
+    "ai-gen/prism_data_features.tsv",
+    "ai-gen/anthropic_persuasiveness_data_features.tsv",
+    "ai-gen/lmsys_data_features.tsv",
+    "ai-gen/wildchat_data_features.tsv",
+]
+
+# Sources we might extract year/month from (do NOT include derived "Year"/"Month")
+DATETIME_CANDIDATES = ("PostCreatedAt", "pubDate", "timestamp")
+EPOCH_CANDIDATES = ("PostCreatedUtc",)
+YEAR_SRC = ("PostYear", "year")  # exclude "Year" (derived)
+MONTH_SRC = ("PostMonth", "month")  # exclude "Month" (derived)
+
+# Performance knobs (small chunks + low concurrency = low RAM)
+BLOCKSIZE = os.environ.get("MERGE_BLOCKSIZE", "64MB")  # e.g. 32MB, 64MB, 128MB
+N_WORKERS = int(os.environ.get("MERGE_NWORKERS", "2"))  # set to 1 if still tight
+
+# Outputs
+WRITE_PARQUET = True
+WRITE_CSV_PARTS = True
+STITCH_SINGLE_TSV = False  # only if you truly need a single file at the end
+OUT_DIR_PARTS = Path("merged_parts")
+OUT_DIR_PARQUET = Path("merged_parquet")
+OUT_SINGLE_TSV = Path("merged.tsv")  # used only if STITCH_SINGLE_TSV=True
+
+
+def _debug_scan_file(ddf, path: Path, label: str) -> None:
+    """Force-read each partition so we can pinpoint which file/partition fails."""
+    nparts = ddf.npartitions
+    for i in range(nparts):
+        msg = f"[SCAN] {label} | {path} | partition {i+1}/{nparts}"
+        print(msg, flush=True)
+        try:
+            # Count rows to force a full parse of the partition without materializing it.
+            ddf.get_partition(i).map_partitions(lambda df: len(df)).sum().compute()
+        except Exception as e:
+            print(
+                f"[FAIL] {label} | {path} | partition {i+1}/{nparts} -> {type(e).__name__}: {e}",
+                flush=True,
+            )
+            raise
+
+
+def _label(path: Path) -> str:
+    parts = [x for x in path.parts if x not in (".", "")]
+    return "/".join(parts[-3:]) if len(parts) >= 3 else str(path)
+
+
+def _add_year_month(pdf: pd.DataFrame) -> pd.DataFrame:
+    """Per-partition Year/Month derivation (NA-safe, low-RAM dtypes)."""
+    y = pd.Series(pd.NA, index=pdf.index, dtype="Int16")  # smaller than Int64
+    m = pd.Series(pd.NA, index=pdf.index, dtype="Int8")
+
+    # numeric year/month from source columns
+    for c in YEAR_SRC:
+        if c in pdf.columns:
+            s = pd.to_numeric(pdf[c], errors="coerce").astype("Int16")
+            if not s.isna().all():
+                y = s
+                break
+    for c in MONTH_SRC:
+        if c in pdf.columns:
+            s = pd.to_numeric(pdf[c], errors="coerce")
+            s = s.where((s >= 1) & (s <= 12)).astype("Int8")
+            if not s.isna().all():
+                m = s
+                break
+
+    # datetime-like text columns
+    if y.isna().all() or m.isna().all():
+        for c in DATETIME_CANDIDATES:
+            if c in pdf.columns:
+                try:
+                    dt = pd.to_datetime(
+                        pdf[c], errors="coerce", utc=True, format="mixed"
+                    )
+                except TypeError:
+                    dt = pd.to_datetime(pdf[c], errors="coerce", utc=True)
+                if y.isna().all():
+                    yy = dt.dt.year.astype("Int16")
+                    if not yy.isna().all():
+                        y = yy
+                if m.isna().all():
+                    mm = dt.dt.month.astype("Int8")
+                    if not mm.isna().all():
+                        m = mm
+                if not y.isna().all() and not m.isna().all():
+                    break
+
+    # epoch seconds/ms heuristic
+    if y.isna().all() or m.isna().all():
+        for c in EPOCH_CANDIDATES:
+            if c in pdf.columns:
+                x = pd.to_numeric(pdf[c], errors="coerce")
+                dt = pd.to_datetime(
+                    x, unit="s", origin="unix", errors="coerce", utc=True
+                )
+                frac_nat = dt.isna().astype("float64").mean()
+                frac_big = x.gt(10**12).astype("float64").mean()
+                if (float(frac_nat) if pd.notna(frac_nat) else 0.0) > 0.5 and (
+                    float(frac_big) if pd.notna(frac_big) else 0.0
+                ) > 0.5:
+                    dt = pd.to_datetime(
+                        x, unit="ms", origin="unix", errors="coerce", utc=True
+                    )
+                if y.isna().all():
+                    yy = dt.dt.year.astype("Int16")
+                    if not yy.isna().all():
+                        y = yy
+                if m.isna().all():
+                    mm = dt.dt.month.astype("Int8")
+                    if not mm.isna().all():
+                        m = mm
+                if not y.isna().all() and not m.isna().all():
+                    break
+
+    pdf["Year"] = y
+    pdf["Month"] = m
+    return pdf
+
+
+def _stitch_parts_to_single(parts_dir: Path, out_path: Path) -> None:
+    part_files = sorted(parts_dir.glob("part-*.tsv"))
+    if not part_files:
+        raise SystemExit(f"No part files found in {parts_dir}")
+    with out_path.open("wb") as w:
+        # header from the first file
+        with part_files[0].open("rb") as r0:
+            w.write(r0.read())
+        # append others without their headers
+        for pf in part_files[1:]:
+            with pf.open("rb") as r:
+                first = True
+                for line in r:
+                    if first:
+                        first = False
+                        continue
+                    w.write(line)
+
+
+def main():
+    # Use a tiny thread pool to limit concurrent partitions in memory.
+    # Threads avoid per-process memory duplication on macOS.
+    pool = ThreadPool(N_WORKERS)
+    dask.config.set(scheduler="threads", pool=pool)
+
+    # On macOS/Windows ensure spawn is used & supported (safe no-op with threads)
+    try:
+        import multiprocessing as mp
+
+        if sys.platform == "darwin":
+            mp.set_start_method("spawn", force=True)
+        if os.name == "nt":
+            mp.freeze_support()
+    except Exception:
+        pass
+
+    # --- discover files & headers quickly (header-only read) ---
+    paths = [BASE_DIR / f for f in FILES if (BASE_DIR / f).is_file()]
+    if not paths:
+        raise SystemExit("No input files found.")
+
+    header_map = {}
+    for p in paths:
+        cols = pd.read_csv(p, sep="\t", nrows=0, dtype=str).columns
+        header_map[p] = set(cols)
+
+    common = set.intersection(*header_map.values()) if header_map else set()
+    if not common:
+        raise SystemExit("No common columns across the provided files.")
+    feature_cols = sorted(common)
+
+    # columns we might need to read from source files
+    needed_for_ym_src = (
+        set(DATETIME_CANDIDATES)
+        | set(EPOCH_CANDIDATES)
+        | set(YEAR_SRC)
+        | set(MONTH_SRC)
+    )
+
+    dfs = []
+    for p in paths:
+        label = _label(p)
+        header = header_map[p]
+        per_file_usecols = sorted((header & (common | needed_for_ym_src)))
+        if not per_file_usecols:
+            raise SystemExit(f"No usable columns to read from {p}")
+
+        # Forgiving parser: skip malformed rows; small blocks for low RAM
+        read_kwargs = dict(
+            sep="\t",
+            dtype=str,
+            assume_missing=True,
+            blocksize=BLOCKSIZE,  # keeps partitions small
+            usecols=per_file_usecols,
+            on_bad_lines="skip",  # drop ragged/malformed lines
+            sample=256000,  # limit dtype sample bytes (we force dtype=str anyway)
+        )
+
+        try:
+            ddf = dd.read_csv(p.as_posix(), **read_kwargs)
+        except Exception as e:
+            # Fallback to Python engine (no block splitting) only if needed
+            print(f"[WARN] C engine failed on {p}: {e}. Retrying with engine='python'.")
+            rk2 = dict(read_kwargs)
+            rk2.pop("blocksize", None)  # python engine can't split by block
+            ddf = dd.read_csv(p.as_posix(), engine="python", **rk2)
+
+        if os.environ.get("MERGE_DEBUG_SCAN", "1") == "1":
+            _debug_scan_file(ddf, p, label)
+
+        # Provide meta so Dask knows new columns + dtypes (use small extension dtypes)
+        meta = ddf._meta.assign(
+            Year=pd.Series(dtype="Int16"), Month=pd.Series(dtype="Int8")
+        )
+
+        ddf = ddf.map_partitions(_add_year_month, meta=meta)
+        ddf = ddf.assign(Dataset=label)[feature_cols + ["Year", "Month", "Dataset"]]
+        # Category = smaller memory when materialized
+        ddf = ddf.assign(Dataset=ddf["Dataset"].astype("category"))
+        dfs.append(ddf)
+
+    # Concatenate lazily; no persist() to avoid caching the whole graph in RAM.
+    merged = dd.concat(dfs, interleave_partitions=True)
+
+    ProgressBar().register()
+
+    # --- Writes (streaming via scheduler; no in-memory persist) ---
+    if WRITE_PARQUET:
+        OUT_DIR_PARQUET.mkdir(parents=True, exist_ok=True)
+        merged.to_parquet(
+            OUT_DIR_PARQUET.as_posix(),
+            write_index=False,
+            compression="snappy",
+            write_metadata_file=False,  # avoid large global metadata gather
+        )
+        print(f"[DONE] Wrote parquet directory: {OUT_DIR_PARQUET}")
+
+    if WRITE_CSV_PARTS or STITCH_SINGLE_TSV:
+        OUT_DIR_PARTS.mkdir(parents=True, exist_ok=True)
+        # NOTE: many small files is OK; avoid single_file=True (would spike memory)
+        merged.to_csv(
+            (OUT_DIR_PARTS / "part-*.tsv").as_posix(),
+            sep="\t",
+            index=False,
+            header=True,
+        )
+        print(f"[DONE] Wrote TSV parts: {OUT_DIR_PARTS}")
+
+    if STITCH_SINGLE_TSV:
+        _stitch_parts_to_single(OUT_DIR_PARTS, OUT_SINGLE_TSV)
+        print(f"[DONE] Stitched single TSV: {OUT_SINGLE_TSV}")
+        # Tip: compress after stitch with a multithreaded tool (e.g., `zstd -T0`) if desired.
+
+
+if __name__ == "__main__":
+    main()
