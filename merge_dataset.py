@@ -7,6 +7,7 @@ import dask
 import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 from multiprocessing.pool import ThreadPool
+from dask.dataframe.utils import make_meta
 
 # --- LOW-RAM CONFIG (edit as needed) ---
 BASE_DIR = Path("/Users/jp/Desktop/abcde_v1")
@@ -53,11 +54,88 @@ N_WORKERS = int(os.environ.get("MERGE_NWORKERS", "2"))  # set to 1 if still tigh
 
 # Outputs
 WRITE_PARQUET = True
-WRITE_CSV_PARTS = True
-STITCH_SINGLE_TSV = False  # only if you truly need a single file at the end
-OUT_DIR_PARTS = Path("merged_parts")
 OUT_DIR_PARQUET = Path("merged_parquet")
-OUT_SINGLE_TSV = Path("merged.tsv")  # used only if STITCH_SINGLE_TSV=True
+
+# --- coercion helpers (no regex dependency for strings) ---
+BPM_STRING_COLS = {"MyBPM", "YourBPM", "HisBPM", "HerBPM", "TheirBPM"}
+
+
+def _to_bool_series(s: pd.Series) -> pd.Series:
+    # normalize to pandas string dtype so .str works consistently
+    s = s.astype("string")
+    v = s.str.strip().str.lower()
+    # accept 0/1/true/false only; everything else -> <NA>
+    out = pd.Series(pd.NA, index=s.index, dtype="boolean")
+    is_booly = v.isin(["0", "1", "true", "false"]) | v.isna()
+    if is_booly.any():
+        mapped = v.map({"1": True, "0": False, "true": True, "false": False})
+        out[is_booly] = mapped.astype("boolean")
+    return out
+
+
+def _to_numeric(s: pd.Series, kind: str) -> pd.Series:
+    # kind in {"int32","int64","float32","float64"}
+    num = pd.to_numeric(s, errors="coerce")
+    if kind == "int32":
+        return num.astype("Int32")
+    if kind == "int64":
+        return num.astype("Int64")
+    if kind == "float32":
+        return num.astype("Float32")
+    return num.astype("Float64")
+
+
+def _target_dtype_for(col: str) -> str:
+    # desired output dtypes by column name pattern
+    if col == "Year":
+        return "Int16"
+    if col == "Month":
+        return "Int8"
+    if col == "Dataset":
+        return "string"
+    if col == "HasBPM":
+        return "boolean"
+    if col in BPM_STRING_COLS:
+        return "string"
+    if ("Has" in col) and ("BPM" not in col):
+        return "boolean"
+    if "Count" in col:
+        return "Int32"
+    if "Avg" in col:
+        return "Float32"
+    return "string"
+
+
+def _build_meta_coerced(cols) -> pd.DataFrame:
+    dtypes = {c: _target_dtype_for(c) for c in cols}
+    return make_meta(dtypes)
+
+
+def _coerce_feature_types(pdf: pd.DataFrame) -> pd.DataFrame:
+    cols = pdf.columns
+
+    # booleans
+    bool_cols = [c for c in cols if (c == "HasBPM") or ("Has" in c and "BPM" not in c)]
+    for c in bool_cols:
+        pdf[c] = _to_bool_series(pdf[c])
+
+    # floats
+    for c in [c for c in cols if "Avg" in c]:
+        pdf[c] = _to_numeric(pdf[c], "float32")  # or "float64"
+
+    # ints
+    if "WordCount" in cols:
+        pdf["WordCount"] = _to_numeric(pdf["WordCount"], "int32")
+
+    # any feature columns containing "Count" should be integer
+    for c in [c for c in cols if ("Count" in c) and (c not in bool_cols)]:
+        pdf[c] = _to_numeric(pdf[c], "int32")
+
+    # BPM string exceptions (force string consistently)
+    for c in BPM_STRING_COLS & set(cols):
+        pdf[c] = pdf[c].astype("string")
+
+    return pdf
 
 
 def _debug_scan_file(ddf, path: Path, label: str) -> None:
@@ -250,9 +328,17 @@ def main():
             Year=pd.Series(dtype="Int16"), Month=pd.Series(dtype="Int8")
         )
 
+        # 1) derive Year/Month
         ddf = ddf.map_partitions(_add_year_month, meta=meta)
+
+        # 2) build meta for the *post-coercion* schema and coerce types
+        post_cols = list(ddf._meta.columns)  # includes Year/Month + features
+        meta_coerced = _build_meta_coerced(post_cols)
+        ddf = ddf.map_partitions(_coerce_feature_types, meta=meta_coerced)
+
+        # 3) add Dataset label and select final columns
         ddf = ddf.assign(Dataset=label)[feature_cols + ["Year", "Month", "Dataset"]]
-        # Category = smaller memory when materialized
+        # Category = smaller memory when materialized (pyarrow writes dictionary)
         ddf = ddf.assign(Dataset=ddf["Dataset"].astype("category"))
         dfs.append(ddf)
 
@@ -268,25 +354,11 @@ def main():
             OUT_DIR_PARQUET.as_posix(),
             write_index=False,
             compression="snappy",
+            engine="pyarrow",
             write_metadata_file=False,  # avoid large global metadata gather
+            # partition_on=["Year", "Month"],  # uncomment if you want directory partitioning
         )
         print(f"[DONE] Wrote parquet directory: {OUT_DIR_PARQUET}")
-
-    if WRITE_CSV_PARTS or STITCH_SINGLE_TSV:
-        OUT_DIR_PARTS.mkdir(parents=True, exist_ok=True)
-        # NOTE: many small files is OK; avoid single_file=True (would spike memory)
-        merged.to_csv(
-            (OUT_DIR_PARTS / "part-*.tsv").as_posix(),
-            sep="\t",
-            index=False,
-            header=True,
-        )
-        print(f"[DONE] Wrote TSV parts: {OUT_DIR_PARTS}")
-
-    if STITCH_SINGLE_TSV:
-        _stitch_parts_to_single(OUT_DIR_PARTS, OUT_SINGLE_TSV)
-        print(f"[DONE] Stitched single TSV: {OUT_SINGLE_TSV}")
-        # Tip: compress after stitch with a multithreaded tool (e.g., `zstd -T0`) if desired.
 
 
 if __name__ == "__main__":
