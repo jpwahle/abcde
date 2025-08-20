@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import os
-import sys
 from pathlib import Path
 import pandas as pd
 import dask
@@ -10,7 +9,7 @@ from multiprocessing.pool import ThreadPool
 from dask.dataframe.utils import make_meta
 
 # --- LOW-RAM CONFIG (edit as needed) ---
-BASE_DIR = Path("/Users/jp/Desktop/abcde_v1")
+BASE_DIR = Path("/Users/jp/abcde_v1")
 FILES = [
     # "ai-gen/pippa_data_features.tsv",
     # "ai-gen/raid_data_features.tsv",
@@ -53,7 +52,6 @@ BLOCKSIZE = os.environ.get("MERGE_BLOCKSIZE", "64MB")  # e.g. 32MB, 64MB, 128MB
 N_WORKERS = int(os.environ.get("MERGE_NWORKERS", "2"))  # set to 1 if still tight
 
 # Outputs
-WRITE_PARQUET = True
 OUT_DIR_PARQUET = Path("merged_parquet")
 
 # --- coercion helpers (no regex dependency for strings) ---
@@ -93,6 +91,8 @@ def _target_dtype_for(col: str) -> str:
         return "Int8"
     if col == "Dataset":
         return "string"
+    if col == "match_count" or col == "MatchCount":
+        return "Int32"
     if col == "HasBPM":
         return "boolean"
     if col in BPM_STRING_COLS:
@@ -127,6 +127,11 @@ def _coerce_feature_types(pdf: pd.DataFrame) -> pd.DataFrame:
     if "WordCount" in cols:
         pdf["WordCount"] = _to_numeric(pdf["WordCount"], "int32")
 
+    # explicit match_count coercion (books) if present under any common casing
+    for mc in ("match_count", "MatchCount"):
+        if mc in cols:
+            pdf[mc] = _to_numeric(pdf[mc], "int32")
+
     # any feature columns containing "Count" should be integer
     for c in [c for c in cols if ("Count" in c) and (c not in bool_cols)]:
         pdf[c] = _to_numeric(pdf[c], "int32")
@@ -158,6 +163,29 @@ def _debug_scan_file(ddf, path: Path, label: str) -> None:
 def _label(path: Path) -> str:
     parts = [x for x in path.parts if x not in (".", "")]
     return "/".join(parts[-3:]) if len(parts) >= 3 else str(path)
+
+
+def _dataset_type_from_path(path: Path) -> str:
+    """Map a file path to a coarse dataset type for export labeling."""
+    top = ""
+    try:
+        top = path.relative_to(BASE_DIR).parts[0]
+    except Exception:
+        # Fallback: probe path components case-insensitively
+        lower_parts = [p.lower() for p in path.parts]
+        for key in ("ai-gen", "reddit", "tusc", "blogs", "books"):
+            if key in lower_parts:
+                top = key
+                break
+
+    mapping = {
+        "ai-gen": "AI-Generated",
+        "reddit": "Reddit",
+        "tusc": "Twitter",
+        "blogs": "Blogs",
+        "books": "Books",
+    }
+    return mapping.get(top, "Unknown")
 
 
 def _add_year_month(pdf: pd.DataFrame) -> pd.DataFrame:
@@ -258,19 +286,9 @@ def main():
     pool = ThreadPool(N_WORKERS)
     dask.config.set(scheduler="threads", pool=pool)
 
-    # On macOS/Windows ensure spawn is used & supported (safe no-op with threads)
-    try:
-        import multiprocessing as mp
-
-        if sys.platform == "darwin":
-            mp.set_start_method("spawn", force=True)
-        if os.name == "nt":
-            mp.freeze_support()
-    except Exception:
-        pass
-
     # --- discover files & headers quickly (header-only read) ---
     paths = [BASE_DIR / f for f in FILES if (BASE_DIR / f).is_file()]
+    print(f"Found {len(paths)} input files.")
     if not paths:
         raise SystemExit("No input files found.")
 
@@ -283,6 +301,7 @@ def main():
     if not common:
         raise SystemExit("No common columns across the provided files.")
     feature_cols = sorted(common)
+    print(f"Found {len(feature_cols)} common columns.")
 
     # columns we might need to read from source files
     needed_for_ym_src = (
@@ -296,7 +315,11 @@ def main():
     for p in paths:
         label = _label(p)
         header = header_map[p]
-        per_file_usecols = sorted((header & (common | needed_for_ym_src)))
+        # include optional match_count column if present in source (books)
+        optional_cols = {"match_count", "MatchCount"}
+        per_file_usecols = sorted(
+            (header & (common | needed_for_ym_src | optional_cols))
+        )
         if not per_file_usecols:
             raise SystemExit(f"No usable columns to read from {p}")
 
@@ -336,10 +359,28 @@ def main():
         meta_coerced = _build_meta_coerced(post_cols)
         ddf = ddf.map_partitions(_coerce_feature_types, meta=meta_coerced)
 
-        # 3) add Dataset label and select final columns
-        ddf = ddf.assign(Dataset=label)[feature_cols + ["Year", "Month", "Dataset"]]
+        # Normalize match count column name if present (output should be 'MatchCount')
+        has_mc_lower = "match_count" in header
+        has_mc_camel = "MatchCount" in header
+        if has_mc_lower and not has_mc_camel:
+            ddf = ddf.rename(columns={"match_count": "MatchCount"})
+
+        # Ensure match_count policy: 1 for non-books, source value for books
+        ds_type = _dataset_type_from_path(p)
+        if ds_type != "Books":
+            ddf = ddf.assign(MatchCount=1)
+
+        # 3) add Dataset label, Dataset Type, and select final columns
+        ddf = ddf.assign(Dataset=label, **{"Dataset Type": ds_type})[
+            feature_cols + ["Year", "Month", "MatchCount", "Dataset", "Dataset Type"]
+        ]
+        # Enforce dtype for match_count post-assignment
+        ddf = ddf.assign(MatchCount=ddf["MatchCount"].astype("Int32"))
         # Category = smaller memory when materialized (pyarrow writes dictionary)
-        ddf = ddf.assign(Dataset=ddf["Dataset"].astype("category"))
+        ddf = ddf.assign(
+            Dataset=ddf["Dataset"].astype("category"),
+            **{"Dataset Type": ddf["Dataset Type"].astype("category")},
+        )
         dfs.append(ddf)
 
     # Concatenate lazily; no persist() to avoid caching the whole graph in RAM.
@@ -348,17 +389,16 @@ def main():
     ProgressBar().register()
 
     # --- Writes (streaming via scheduler; no in-memory persist) ---
-    if WRITE_PARQUET:
-        OUT_DIR_PARQUET.mkdir(parents=True, exist_ok=True)
-        merged.to_parquet(
-            OUT_DIR_PARQUET.as_posix(),
-            write_index=False,
-            compression="snappy",
-            engine="pyarrow",
-            write_metadata_file=False,  # avoid large global metadata gather
-            # partition_on=["Year", "Month"],  # uncomment if you want directory partitioning
-        )
-        print(f"[DONE] Wrote parquet directory: {OUT_DIR_PARQUET}")
+    OUT_DIR_PARQUET.mkdir(parents=True, exist_ok=True)
+    merged.to_parquet(
+        OUT_DIR_PARQUET.as_posix(),
+        write_index=False,
+        compression="snappy",
+        engine="pyarrow",
+        write_metadata_file=False,  # avoid large global metadata gather
+        # partition_on=["Year", "Month"],  # uncomment if you want directory partitioning
+    )
+    print(f"[DONE] Wrote parquet directory: {OUT_DIR_PARQUET}")
 
 
 if __name__ == "__main__":
