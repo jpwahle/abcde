@@ -7,6 +7,7 @@ import dask.dataframe as dd
 from dask.diagnostics import ProgressBar
 from multiprocessing.pool import ThreadPool
 from dask.dataframe.utils import make_meta
+import multiprocessing as mp
 
 # --- LOW-RAM CONFIG (edit as needed) ---
 BASE_DIR = Path("/Users/jp/abcde_v1")
@@ -49,7 +50,9 @@ MONTH_SRC = ("PostMonth", "month")  # exclude "Month" (derived)
 
 # Performance knobs (small chunks + low concurrency = low RAM)
 BLOCKSIZE = os.environ.get("MERGE_BLOCKSIZE", "64MB")  # e.g. 32MB, 64MB, 128MB
-N_WORKERS = int(os.environ.get("MERGE_NWORKERS", "2"))  # set to 1 if still tight
+N_WORKERS = int(
+    os.environ.get("MERGE_NWORKERS", mp.cpu_count())
+)  # set to 1 if still tight
 
 # Outputs
 OUT_DIR_PARQUET = Path("merged_parquet")
@@ -283,6 +286,7 @@ def _stitch_parts_to_single(parts_dir: Path, out_path: Path) -> None:
 def main():
     # Use a tiny thread pool to limit concurrent partitions in memory.
     # Threads avoid per-process memory duplication on macOS.
+    print(f"Using {N_WORKERS} workers.")
     pool = ThreadPool(N_WORKERS)
     dask.config.set(scheduler="threads", pool=pool)
 
