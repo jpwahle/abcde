@@ -304,8 +304,16 @@ def main():
     common = set.intersection(*header_map.values()) if header_map else set()
     if not common:
         raise SystemExit("No common columns across the provided files.")
-    feature_cols = sorted(common)
-    print(f"Found {len(feature_cols)} common columns.")
+
+    # Keep all DMG-prefixed demographic columns even if they are not common to all datasets
+    dmg_union = set()
+    for cols in header_map.values():
+        dmg_union.update(
+            {c for c in cols if isinstance(c, str) and c.startswith("DMG")}
+        )
+
+    feature_cols = sorted(common | dmg_union)
+    print(f"Found {len(feature_cols)} feature columns (common + DMG-prefixed).")
 
     # columns we might need to read from source files
     needed_for_ym_src = (
@@ -321,8 +329,9 @@ def main():
         header = header_map[p]
         # include optional match_count column if present in source (books)
         optional_cols = {"match_count", "MatchCount"}
+        # always include any DMG-prefixed columns present in this file
         per_file_usecols = sorted(
-            (header & (common | needed_for_ym_src | optional_cols))
+            (header & (common | needed_for_ym_src | optional_cols | dmg_union))
         )
         if not per_file_usecols:
             raise SystemExit(f"No usable columns to read from {p}")
@@ -358,8 +367,14 @@ def main():
         # 1) derive Year/Month
         ddf = ddf.map_partitions(_add_year_month, meta=meta)
 
+        # Ensure this dataframe has all DMG columns (add missing as NA so they persist in output)
+        missing_dmg = sorted(dmg_union - set(ddf.columns))
+        if missing_dmg:
+            add_missing = {c: pd.NA for c in missing_dmg}
+            ddf = ddf.assign(**add_missing)
+
         # 2) build meta for the *post-coercion* schema and coerce types
-        post_cols = list(ddf._meta.columns)  # includes Year/Month + features
+        post_cols = list(ddf._meta.columns)  # includes Year/Month + features (+ DMG)
         meta_coerced = _build_meta_coerced(post_cols)
         ddf = ddf.map_partitions(_coerce_feature_types, meta=meta_coerced)
 
