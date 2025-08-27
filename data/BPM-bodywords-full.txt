@@ -22,7 +22,7 @@ back
 ball of the foot
 belly
 belly button
-big toe
+toe
 bladder
 blood
 blood vessels
@@ -185,7 +185,6 @@ occipital
 occiput
 oesophagus
 organs
-os
 ovarian
 ovary
 oviduct
@@ -199,7 +198,6 @@ pedal
 pelvis
 penile
 penis
-pes
 phalanges
 pharyngeal
 pharynx
