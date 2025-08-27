@@ -581,9 +581,17 @@ class SelfIdentificationDetector:
         for age_str in age_matches:
             try:
                 # Handle two-digit birth years like '85
-                if age_str.startswith("'") and len(age_str) == 3 and age_str[1:].isdigit():
+                if (
+                    age_str.startswith("'")
+                    and len(age_str) == 3
+                    and age_str[1:].isdigit()
+                ):
                     year_val = int(age_str[1:])
-                    birth_year = 1900 + year_val if year_val > (current_year % 100) else 2000 + year_val
+                    birth_year = (
+                        1900 + year_val
+                        if year_val > (current_year % 100)
+                        else 2000 + year_val
+                    )
                     weight = 1.0  # High confidence for explicit birth years
                 else:
                     age_val = int(age_str)
@@ -916,12 +924,19 @@ def _load_nrc_warmth_lexicon() -> Dict[str, int]:
 
 def _load_cog_lexicon() -> Dict[str, Set[str]]:
     import json
+
     path = _DATA_DIR / "COG-thinking-words-categorized.json"
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     cog_dict: Dict[str, Set[str]] = {}
     for item in data:
-        cat = item["category"].replace(" ", "").replace("&", "").replace("/", "").replace(",", "")
+        cat = (
+            item["category"]
+            .replace(" ", "")
+            .replace("&", "")
+            .replace("/", "")
+            .replace(",", "")
+        )
         terms = {term.lower() for term in item["terms"]}
         cog_dict[cat] = terms
     return cog_dict
@@ -1458,6 +1473,7 @@ def compute_individual_pronouns(text: str) -> Dict[str, int]:
         "PRNHasWe": ["we"],
         "PRNHasOur": ["our"],
         "PRNHasOurs": ["ours"],
+        "PRNHasUs": ["us"],
         "PRNHasYou": ["you"],
         "PRNHasYour": ["your"],
         "PRNHasYours": ["yours"],
@@ -1467,6 +1483,7 @@ def compute_individual_pronouns(text: str) -> Dict[str, int]:
         "PRNHasHe": ["he"],
         "PRNHasHim": ["him"],
         "PRNHasHis": ["his"],
+        "PRNHasIt": ["it"],
         "PRNHasThey": ["they"],
         "PRNHasThem": ["them"],
         "PRNHasTheir": ["their"],
@@ -1531,8 +1548,7 @@ def compute_cognitive_features(
         return {f"COGHas{cat}Word": 0 for cat in cog_dict}
     words = set(text.lower().split())
     return {
-        f"COGHas{cat}Word": int(bool(words & terms))
-        for cat, terms in cog_dict.items()
+        f"COGHas{cat}Word": int(bool(words & terms)) for cat, terms in cog_dict.items()
     }
 
 
@@ -1980,8 +1996,8 @@ def get_all_jsonl_files(path: str) -> List[str]:
 def clean_text_newlines(text: str) -> str:
     if not text:
         return text
-    text = re.sub(r'[\r\n]+', ' ', text)
-    text = re.sub(r' +', ' ', text)
+    text = re.sub(r"[\r\n]+", " ", text)
+    text = re.sub(r" +", " ", text)
     return text.strip()
 
 
@@ -2138,7 +2154,11 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
         if data_source == "tusc":
             # 1) Try numeric PostYear column
             if "PostYear" in group.columns:
-                yrs = pd.to_numeric(group["PostYear"], errors="coerce").dropna().astype(int)
+                yrs = (
+                    pd.to_numeric(group["PostYear"], errors="coerce")
+                    .dropna()
+                    .astype(int)
+                )
                 if not yrs.empty:
                     return yrs.max()
             # 2) Try numeric Year column (some datasets keep original name)
@@ -2157,7 +2177,9 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
             if year_candidates:
                 return max(year_candidates)
             # If we reach here, we failed to find any year information – raise error
-            raise ValueError("Unable to determine post year for TUSC group; all rows missing valid year information")
+            raise ValueError(
+                "Unable to determine post year for TUSC group; all rows missing valid year information"
+            )
         elif data_source == "reddit" and "PostCreatedUtc" in group.columns:
             years = []
             for utc in group["PostCreatedUtc"].dropna():
@@ -2167,7 +2189,9 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
                     pass
             if years:
                 return max(years)
-            raise ValueError("Unable to determine post year for Reddit group; all rows missing valid timestamp")
+            raise ValueError(
+                "Unable to determine post year for Reddit group; all rows missing valid timestamp"
+            )
         else:
             raise ValueError("Unsupported data source or missing date columns")
 
@@ -2182,19 +2206,28 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
 
         if all_raw_birthyears:
             ref_year = get_post_year(group)
-            resolution = detector.resolve_multiple_ages(all_raw_birthyears, current_year=ref_year)
+            resolution = detector.resolve_multiple_ages(
+                all_raw_birthyears, current_year=ref_year
+            )
             if resolution and resolution[1] >= 0.5:
                 resolved_age, _ = resolution
                 agg_row["DMGMajorityBirthyear"] = ref_year - resolved_age
             else:
                 agg_row["DMGMajorityBirthyear"] = pd.NA
-            agg_row["DMGRawBirthyearExtractions"] = "|".join(sorted(set(all_raw_birthyears)))
+            agg_row["DMGRawBirthyearExtractions"] = "|".join(
+                sorted(set(all_raw_birthyears))
+            )
         else:
             agg_row["DMGMajorityBirthyear"] = pd.NA
             agg_row["DMGRawBirthyearExtractions"] = pd.NA
 
         # For other DMG fields
-        for col in [c for c in group.columns if c.startswith("DMG") and c not in ["DMGMajorityBirthyear", "DMGRawBirthyearExtractions"]]:
+        for col in [
+            c
+            for c in group.columns
+            if c.startswith("DMG")
+            and c not in ["DMGMajorityBirthyear", "DMGRawBirthyearExtractions"]
+        ]:
             if "Raw" in col:
                 # Most common raw value
                 all_items = []
@@ -2219,6 +2252,10 @@ def aggregate_user_demographics(df: pd.DataFrame, data_source: str) -> pd.DataFr
         return pd.Series(agg_row)
 
     # Group by Author and apply aggregation
-    aggregated = df.groupby("Author").apply(aggregate_group, include_groups=False).reset_index(drop=True)
+    aggregated = (
+        df.groupby("Author")
+        .apply(aggregate_group, include_groups=False)
+        .reset_index(drop=True)
+    )
 
     return aggregated
