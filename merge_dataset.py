@@ -191,6 +191,45 @@ def _dataset_type_from_path(path: Path) -> str:
     return mapping.get(top, "Unknown")
 
 
+def _id_group_from_path(path: Path) -> str:
+    """Return group token for id_abcde_{group}_NNNNNNNNNNNN based on file path."""
+    try:
+        parts = [p.lower() for p in path.relative_to(BASE_DIR).parts]
+    except Exception:
+        parts = [p.lower() for p in path.parts]
+
+    if "books" in parts:
+        return "books"
+    if "tusc" in parts:
+        name = path.name.lower()
+        if "country" in name:
+            return "tusc_ctry"
+        if "city" in name:
+            return "tusc_city"
+        return "tusc"
+    if "reddit" in parts:
+        return "reddit"
+    if "blogs" in parts:
+        return "blogs"
+    if "ai-gen" in parts or "ai_gen" in parts or "ai" in parts:
+        return "ai"
+    return "unknown"
+
+
+def _add_id_column(pdf: pd.DataFrame, group_token: str) -> pd.DataFrame:
+    """Add deterministic unique id column: id_abcde_{group}_NNNNNNNNNNNN."""
+    h = pd.util.hash_pandas_object(pdf, index=False).astype("uint64")
+    mod = 10**12
+    suffix = (h % mod).astype("uint64").astype(str).str.zfill(12)
+    out = pdf.copy()
+    out["id"] = "id_abcde_" + group_token + "_" + suffix
+    try:
+        out["id"] = out["id"].astype("string")
+    except Exception:
+        pass
+    return out
+
+
 def _add_year_month(pdf: pd.DataFrame) -> pd.DataFrame:
     """Per-partition Year/Month derivation (NA-safe, low-RAM dtypes)."""
     y = pd.Series(pd.NA, index=pdf.index, dtype="Int16")  # smaller than Int64
@@ -400,6 +439,10 @@ def main():
             Dataset=ddf["Dataset"].astype("category"),
             **{"Dataset Type": ddf["Dataset Type"].astype("category")},
         )
+        # 4) add stable unique id per row with group token
+        group_token = _id_group_from_path(p)
+        meta_with_id = ddf._meta.assign(id=pd.Series(dtype="string"))
+        ddf = ddf.map_partitions(_add_id_column, group_token, meta=meta_with_id)
         dfs.append(ddf)
 
     # Concatenate lazily; no persist() to avoid caching the whole graph in RAM.
