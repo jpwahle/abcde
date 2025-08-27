@@ -1115,6 +1115,39 @@ def build_term_group(terms: List[str], capturing: bool = False) -> str:
         return r"(?:" + "|".join(escaped_terms) + ")"
 
 
+def _to_ing_form(verb: str) -> str:
+    """Naive but practical conversion of lemma -> -ing."""
+    v = verb.lower()
+    # Irregular/special
+    if v == "be":
+        return "being"
+    if v.endswith("ie") and len(v) > 2:
+        return v[:-2] + "ying"  # die->dying, tie->tying
+    # keep final 'e' for 'see', 'flee', 'knee' (and similar)
+    if v in {"see", "flee", "knee", "agree", "free", "decree"}:
+        return v + "ing"
+    if v.endswith("e") and len(v) > 2:
+        return v[:-1] + "ing"  # make->making
+    # CVC doubling (except w,x,y)
+    vowels = set("aeiou")
+    consonants = set("bcdfghjklmnpqrstvz")  # (skip w,x,y)
+    if (
+        len(v) >= 3
+        and v[-1] in consonants
+        and v[-2] in vowels
+        and v[-3] in consonants
+        and v[-1] not in {"w", "x", "y"}
+    ):
+        return v + v[-1] + "ing"  # plan->planning
+    return v + "ing"
+
+
+def _build_ing_regex_group(verbs: List[str]) -> str:
+    """Return an alternation group of -ing forms for regex (longest first)."""
+    ings = sorted({_to_ing_form(v) for v in verbs}, key=len, reverse=True)
+    return r"(" + "|".join(re.escape(v) for v in ings) + r")"
+
+
 def _build_nationalities_from_countries(countries: List[str]) -> List[str]:
     """Generate nationality terms from country names using common patterns."""
     nationalities = []
@@ -1273,6 +1306,12 @@ emotions = [
     "trust",
 ]
 cog_dict = _load_cog_lexicon()
+
+# Default cognitive verbs to power embodied cognition detector
+# Use single-token alphabetic terms from the cognitive lexicon as a practical default
+DEFAULT_COGNITIVE_VERBS: List[str] = sorted(
+    {w for terms in cog_dict.values() for w in terms if w.isalpha()}
+)
 
 
 def compute_vad_and_emotions(
@@ -1552,6 +1591,78 @@ def compute_cognitive_features(
     }
 
 
+def compute_embodied_cognitive_verbs(
+    text: str,
+    cognitive_verbs: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Detect 'embodied' cognitive verbs: SUBJECT + BE/BEEN/BEING + (adv/neg)* + VBG
+    e.g., "I'm thinking", "you were analyzing", "she has been reflecting".
+    Returns per-subject matched phrases and an overall boolean.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return {
+            "ICOG": "",
+            "YouCOG": "",
+            "WeCOG": "",
+            "HeCOG": "",
+            "SheCOG": "",
+            "TheyCOG": "",
+            "HasCOG": False,
+        }
+
+    cognitive_verbs = cognitive_verbs or DEFAULT_COGNITIVE_VERBS
+    verbs_group = _build_ing_regex_group(cognitive_verbs)
+
+    # Accept straight/curly apostrophes in contractions
+    apos = r"(?:'|’)"
+    # Auxiliaries (progressive forms + perfect progressive)
+    # Keep concise but robust; add modals + 'be' for "might be thinking"
+    AUX = (
+        rf"(?:{apos}m|am|are|{apos}re|is|{apos}s|was|were|"
+        rf"have\s+been|{apos}ve\s+been|has\s+been|had\s+been|"
+        rf"(?:might|may|can|could|should|would|will|shall|must)\s+be|"
+        rf"be|been|being)"
+    )
+
+    # Up to 3 optional adverbs/negation words between aux and verb (e.g., "just", "really", "not")
+    MID = r"(?:\s+(?:not|\w+(?:-\w+)?)){0,3}"
+
+    subjects = [
+        (r"\bI\b", "ICOG"),
+        (r"\byou\b", "YouCOG"),
+        (r"\bwe\b", "WeCOG"),
+        (r"\bhe\b", "HeCOG"),
+        (r"\bshe\b", "SheCOG"),
+        (r"\bthey\b", "TheyCOG"),
+    ]
+
+    # Build one regex per subject to keep column separation simple
+    patterns = {
+        label: re.compile(rf"{subj}\s+{AUX}{MID}\s+{verbs_group}\b", re.IGNORECASE)
+        for subj, label in subjects
+    }
+
+    lower = text  # keep original case for extracting matched phrase
+    out: Dict[str, str] = {}
+    any_hits = False
+
+    for label, pat in patterns.items():
+        hits = [m.group(0).strip() for m in pat.finditer(lower)]
+        # Deduplicate but preserve order
+        seen = set()
+        uniq = []
+        for h in hits:
+            if h.lower() not in seen:
+                seen.add(h.lower())
+                uniq.append(h)
+        out[label] = ", ".join(uniq)
+        any_hits = any_hits or bool(uniq)
+
+    out["HasCOG"] = any_hits
+    return out
+
+
 # -------------------- #
 # TUSC-specific Helper
 # -------------------- #
@@ -1615,6 +1726,7 @@ def apply_linguistic_features(
     features.update(compute_prefixed_body_part_mentions(text, BODY_PARTS))
     features.update(compute_tense_features(text, tense_dict))
     features.update(compute_cognitive_features(text, cog_dict))
+    features.update(compute_embodied_cognitive_verbs(text))
     return features
 
 
