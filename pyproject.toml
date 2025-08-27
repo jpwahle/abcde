@@ -5,6 +5,7 @@ description = "The official repository for the ABCDE dataset."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "bokeh>=3.7.3",
     "dask-jobqueue>=0.9.0",
     "dask[distributed]>=2025.3.0",
     "flashtext>=2.7",
@@ -16,10 +17,12 @@ dependencies = [
     "pandas>=2.2.3",
     "pip>=25.1.1",
     "presidio-analyzer>=2.2.30",
+    "psycopg2-binary>=2.9.10",
     "pyarrow>=20.0.0",
     "pytest-timeout>=2.4.0",
     "requests>=2.32.3",
     "spacy>=3.8.7",
+    "sqlalchemy>=2.0.43",
     "tqdm>=4.67.1",
 ]
 
