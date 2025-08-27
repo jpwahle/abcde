@@ -181,3 +181,6 @@ outputs_*/
 
 # Mac
 .DS_Store
+
+# Data
+*parquet/
