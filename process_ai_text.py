@@ -10,6 +10,90 @@ import pandas as pd
 from helpers import apply_linguistic_features, print_banner
 
 
+def _detect_text_columns(df: pd.DataFrame, dataset_name: str, dataset_ai_map) -> tuple[list[str], list[str]]:
+    """Return (ai_columns, human_columns) present in df for the given dataset.
+
+    Heuristic:
+    - Start from configured AI columns per dataset (string or tuple in map)
+    - Add any additional common AI column names that exist
+    - Detect common human/prompt column names if present
+    """
+    # Seed AI columns from configured map
+    ai_cols: list[str] = []
+    if dataset_name in dataset_ai_map:
+        cfg = dataset_ai_map[dataset_name]
+        if isinstance(cfg, str):
+            ai_cols = [cfg] if cfg in df.columns else []
+        else:
+            ai_cols = [c for c in cfg if c in df.columns]
+
+    # Known column name candidates
+    ai_candidates = [
+        "ai_text",
+        "response",
+        "assistant",
+        "answer",
+        "completion",
+        "output",
+        "model_answer",
+        "model_reasoning",
+        "generated_text",
+        "assistant_response",
+    ]
+    human_candidates = [
+        "prompt",
+        "instruction",
+        "input",
+        "question",
+        "human",
+        "user_input",
+        "user_prompt",
+        "query",
+    ]
+
+    # Add present AI candidates not already included
+    ai_cols_set = set(ai_cols)
+    for col in ai_candidates:
+        if col in df.columns and col not in ai_cols_set:
+            ai_cols.append(col)
+            ai_cols_set.add(col)
+
+    # Detect human/prompt columns present
+    human_cols = [c for c in human_candidates if c in df.columns]
+
+    # Fallback: for datasets with a generic 'text' column and no explicit human columns
+    if not ai_cols and "text" in df.columns:
+        ai_cols = ["text"]
+
+    return ai_cols, human_cols
+
+
+def _build_long_text_df(df: pd.DataFrame, ai_cols: list[str], human_cols: list[str]) -> pd.DataFrame:
+    """Create a long-format DataFrame with columns ['text', 'text_type'].
+
+    - Emits one row per non-empty string in provided AI/Human columns
+    - text_type is "AI" for ai_cols, "Human" for human_cols
+    """
+    records: list[dict] = []
+    # AI texts
+    for col in ai_cols:
+        if col not in df.columns:
+            continue
+        for val in df[col]:
+            if isinstance(val, str) and val.strip():
+                records.append({"text": val, "text_type": "AI"})
+
+    # Human/prompt texts
+    for col in human_cols:
+        if col not in df.columns:
+            continue
+        for val in df[col]:
+            if isinstance(val, str) and val.strip():
+                records.append({"text": val, "text_type": "Human"})
+
+    return pd.DataFrame.from_records(records, columns=["text", "text_type"]) if records else pd.DataFrame(columns=["text", "text_type"])
+
+
 def log_with_timestamp(message: str) -> None:
     """Print a message with a timestamp prefix."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -25,9 +109,10 @@ def main(input_file: str, output_dir: str, dataset_name: str) -> None:
         f"Starting processing for dataset '{dataset_name}' from file: {input_file}"
     )
 
-    # Mapping of dataset names to the columns containing text to be analyzed.
-    # For datasets with multiple text fields (e.g., answer and reasoning),
-    # a tuple of column names is provided.
+    # Mapping of dataset names to AI text columns. Some datasets may also contain
+    # additional prompt/human columns which will be detected heuristically.
+    # For datasets with multiple AI text fields (e.g., answer and reasoning),
+    # a tuple of column names is provided and all will be treated as AI text.
     dataset_column_map = {
         "wildchat-1m": "ai_text",
         "lmsys-1m": "ai_text",
@@ -67,57 +152,34 @@ def main(input_file: str, output_dir: str, dataset_name: str) -> None:
         log_with_timestamp(f"Error reading input file: {e}")
         return
 
-    if isinstance(text_columns, str):
-        # Single text column to process
-        if text_columns not in df.columns:
-            log_with_timestamp(
-                f"Error: Text column '{text_columns}' not found in the input file for dataset '{dataset_name}'."
-            )
-            return
+    # Detect AI and Human text columns present in the input
+    ai_cols, human_cols = _detect_text_columns(df, dataset_name, dataset_column_map)
+    if not ai_cols and not human_cols:
+        log_with_timestamp(
+            "Error: No recognizable text columns found (AI or Human/prompt)."
+        )
+        return
 
-        log_with_timestamp(f"Applying linguistic features to column '{text_columns}'...")
-        features_list = []
-        for text in df[text_columns]:
-            if isinstance(text, str) and text.strip():
-                try:
-                    features = apply_linguistic_features(text)
-                    features_list.append(features)
-                except ValueError as e:
-                    log_with_timestamp(f"Skipping row due to error: {e}")
-                    features_list.append({})
-            else:
+    # Build long-format DataFrame with a single 'text' column and 'text_type'
+    df_long = _build_long_text_df(df, ai_cols, human_cols)
+    log_with_timestamp(
+        f"Prepared long-format text with {len(df_long)} rows from AI cols={ai_cols} and Human cols={human_cols}"
+    )
+
+    # Apply linguistic features on the unified 'text' column
+    log_with_timestamp("Applying linguistic features to unified 'text' column…")
+    features_list = []
+    for text in df_long["text"]:
+        if isinstance(text, str) and text.strip():
+            try:
+                features_list.append(apply_linguistic_features(text))
+            except ValueError as e:
+                log_with_timestamp(f"Skipping row due to error: {e}")
                 features_list.append({})
-        
-        features_df = pd.DataFrame(features_list)
-        df_out = pd.concat([df, features_df], axis=1)
-
-    else:
-        # Multiple text columns to process (e.g., answer and reasoning)
-        df_out = df
-        for col_name in text_columns:
-            if col_name not in df.columns:
-                log_with_timestamp(
-                    f"Error: Text column '{col_name}' not found in the input file for dataset '{dataset_name}'."
-                )
-                continue
-
-            log_with_timestamp(f"Applying linguistic features to column '{col_name}'...")
-            features_list = []
-            for text in df[col_name]:
-                if isinstance(text, str) and text.strip():
-                    try:
-                        features = apply_linguistic_features(text)
-                        features_list.append(features)
-                    except ValueError as e:
-                        log_with_timestamp(f"Skipping row due to error: {e}")
-                        features_list.append({})
-                else:
-                    features_list.append({})
-            
-            features_df = pd.DataFrame(features_list)
-            # Add prefix to feature column names to distinguish them
-            features_df = features_df.add_prefix(f"{col_name}_")
-            df_out = pd.concat([df_out, features_df], axis=1)
+        else:
+            features_list.append({})
+    features_df = pd.DataFrame(features_list)
+    df_out = pd.concat([df_long, features_df], axis=1)
 
     # Prepare output file path
     os.makedirs(output_dir, exist_ok=True)
