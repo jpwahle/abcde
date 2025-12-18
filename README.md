@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository, named **ABCDE** (likely standing for something like "Age, Birth, Country, Demography Extraction" based on the code), is designed for processing large textual datasets to extract demographic self-identification (e.g., age, gender, occupation, location, religion) and compute linguistic features (e.g., emotions, valence-arousal-dominance, warmth-competence, tense, body part mentions). It supports datasets like Reddit (posts and comments), Google Books Ngrams, and Twitter (via the TUSC dataset).
+This repository, named **ABCDE** (Affect, Body, Cognition, Demographics, and Emotion:), is designed for processing large textual datasets to extract demographic self-identification (e.g., age, gender, occupation, location, religion) and compute linguistic features (e.g., emotions, valence-arousal-dominance, warmth-competence, tense, body part mentions). It supports datasets like Reddit (posts and comments), Google Books Ngrams, Twitter (via the TUSC dataset), AI-generated text corpora (WildChat, LMSYS, PIPPA, HH-RLHF, etc.), and blog spinner data.
 
 Key functionalities:
 - **Self-Identification Detection**: Uses regex patterns to detect statements like "I am 25 years old" or "I live in London". Includes mappings (e.g., city to country, religion to category).
@@ -50,7 +50,7 @@ This README is structured to help you understand the repo, run it, and extend/re
 
 ## Data Downloading
 
-The repo processes three main datasets: Reddit, Google Books Ngrams, and Twitter (TUSC). Scripts are provided for downloading Reddit and Google Books. TUSC is manual.
+The repo processes five main datasets: Reddit, Google Books Ngrams, Twitter (TUSC), AI-generated text corpora, and blog spinner data. Scripts are provided for downloading Reddit and Google Books. The others require manual acquisition.
 
 ### 1. Reddit (2010-2022)
    - Source: Pushshift dumps archived on Internet Archive.
@@ -82,6 +82,43 @@ The repo processes three main datasets: Reddit, Google Books Ngrams, and Twitter
    - Download: Manual – clone the repo and copy Parquet files to `~/datasets/tusc/`.
    - Processing: `run_tusc_pipeline.sh` or `run_tusc_pipeline_full.sh` (uses `process_tusc.py`).
    - Tip: For testing, use `extract_tusc_test_data.sh` to create sample data in `data/test/tusc/`.
+
+### 4. AI-Generated Text Datasets
+   - Source: Various AI text corpora (WildChat, LMSYS, PIPPA, HH-RLHF, etc.).
+   - Files: CSV/TSV files with AI-generated and human prompt text.
+   - Download: Manual – obtain datasets from their respective sources and place in `~/datasets/ai-text-datasets/`.
+   - Supported Datasets:
+     - `wildchat-1m`: WildChat 1M conversations
+     - `lmsys-1m`: LMSYS 1M conversations
+     - `pippa`: PIPPA dataset
+     - `hh-rlhf`: Anthropic HH-RLHF
+     - `prism`: PRISM dataset
+     - `apt-paraphrase-dataset-gpt-3`: APT paraphrase dataset (GPT-3)
+     - `anthropic-persuasiveness`: Anthropic persuasiveness data
+     - `M4`: M4 dataset
+     - `mage`: MAGE dataset
+     - `luar`: LUAR dataset
+     - `general_thoughts_430k`: General thoughts 430K
+     - `reasoning_shield`: Reasoning shield dataset
+     - `safechain`: SafeChain dataset
+     - `star1`: STAR1 dataset
+     - `raid`: RAID dataset
+     - `tinystories`: TinyStories dataset
+   - Processing: `run_ai_text_pipeline.sh` (SLURM array job for parallel processing).
+   - Python Script: `process_ai_text.py` – detects AI/human text columns, applies linguistic features.
+   - Output: `outputs_ai_text_pipeline/<dataset>_features.tsv` (one row per text with `text_type` column: "AI" or "Human").
+
+### 5. Spinner (Blog Post) Dataset
+   - Source: Blog spinner corpus – XML files containing blog posts in RSS/Atom format.
+   - Files: XML files organized by tiergroup directories (tiergroup-1 through tiergroup-13, plus tiergroup-none).
+   - Download: Manual – place extracted XML files in `/beegfs/wahle/datasets/spinner/extracted/blogs/` (configurable in script).
+   - Processing: `run_spinner_pipeline.sh` (SLURM array job for parallel processing by tiergroup).
+   - Python Script: `process_spinner.py` – extracts blog posts from XML, sanitizes HTML, filters English-only posts (≥250 chars), applies linguistic features.
+   - Features:
+     - Language detection (English-only via `langdetect`).
+     - HTML sanitization and entity decoding.
+     - Extracts metadata: title, link, GUID, publication date, categories.
+   - Output: `outputs_spinner/<tiergroup>/spinner_blog_posts_features.tsv` per tiergroup.
 
 ## Lexicons Used
 
@@ -177,6 +214,32 @@ All lexicons are stored in `data/` and loaded in `helpers.py` via functions like
 - Full: `./run_tusc_pipeline_full.sh`.
 - Process: `python process_tusc.py --input_file <parquet> --output_dir <out> --stages both`.
 - Outputs: Separate for city/country splits (e.g., `city_users.tsv`).
+
+### AI-Generated Text Datasets
+- Full (SLURM): `sbatch run_ai_text_pipeline.sh` (processes all 16 datasets in parallel via array jobs).
+- Single Dataset: `python process_ai_text.py --input_file <csv/tsv> --output_dir <out> --dataset_name <name>`.
+- Outputs: `<dataset>_features.tsv` with columns:
+  - `text`: The original text content.
+  - `text_type`: "AI" for AI-generated text, "Human" for prompts/instructions.
+  - Linguistic features (NRC emotions, VAD, warmth, tense, etc.).
+- Notes:
+  - Automatically detects AI text columns (`ai_text`, `response`, `model_answer`, etc.) and human columns (`prompt`, `instruction`, etc.).
+  - Some datasets have multiple AI columns (e.g., `model_answer` + `model_reasoning`); all are processed.
+
+### Spinner (Blog Posts)
+- Full (SLURM): `sbatch run_spinner_pipeline.sh` (processes all 14 tiergroups in parallel via array jobs).
+- Single Tiergroup: `python process_spinner.py --input_dir <xml_dir> --output_dir <out>`.
+- Debug Mode: Add `--max_files <n>` to limit the number of XML files processed.
+- Outputs: `spinner_blog_posts_features.tsv` per tiergroup with columns:
+  - `file_path`: Source XML file.
+  - `title`, `link`, `guid`, `pubDate`: Blog post metadata.
+  - `description_raw`: Original HTML content.
+  - `description`: Sanitized plain text.
+  - `categories`: Pipe-separated categories from the post.
+  - Linguistic features (NRC emotions, VAD, warmth, tense, etc.).
+- Notes:
+  - Only English posts with ≥250 characters are included.
+  - HTML entities and tags are stripped; output is tab-safe UTF-8.
 
 ### Monitoring
 - Reddit: `./monitor_reddit_pipeline.sh`.
