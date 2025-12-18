@@ -31,7 +31,7 @@ echo "Pattern: $PATTERN"
 
 # Process the assigned chunk
 # Use the fast version with byte-offset indexing
-uv run python process_ngrams.py \
+uv run python scripts/process_ngrams.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --pattern "$PATTERN" \

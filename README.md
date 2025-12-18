@@ -1,261 +1,277 @@
-# Code to Generate the ABCDE Dataset
+# ABCDE - Age-Based Corpus of Demographic Expressions
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
 
-This repository, named **ABCDE** (Affect, Body, Cognition, Demographics, and Emotion:), is designed for processing large textual datasets to extract demographic self-identification (e.g., age, gender, occupation, location, religion) and compute linguistic features (e.g., emotions, valence-arousal-dominance, warmth-competence, tense, body part mentions). It supports datasets like Reddit (posts and comments), Google Books Ngrams, Twitter (via the TUSC dataset), AI-generated text corpora (WildChat, LMSYS, PIPPA, HH-RLHF, etc.), and blog spinner data.
+**ABCDE** (Affect, Body, Cognition, Demographics, and Emotion) is a Python library for processing large textual datasets to extract demographic self-identification (e.g., age, gender, occupation, location, religion) and compute linguistic features (e.g., emotions, valence-arousal-dominance, warmth-competence, tense, body part mentions).
 
-Key functionalities:
+### Key Features
+
 - **Self-Identification Detection**: Uses regex patterns to detect statements like "I am 25 years old" or "I live in London". Includes mappings (e.g., city to country, religion to category).
 - **Linguistic Feature Extraction**: Computes features from various lexicons (e.g., NRC emotions, VAD, worry words) and custom lists (e.g., body parts, tenses).
 - **Data Processing Pipelines**: Scripts for downloading, extracting, and processing datasets in parallel (e.g., via SLURM for HPC environments).
 - **Output**: Generates TSV files for users (aggregated demographics) and posts (per-entry features with demographics).
 
-The code is Python-based, with Bash scripts for downloading/extraction and SLURM job management. It's optimized for large-scale data (e.g., Reddit's 2010-2022 dumps).
+### Supported Datasets
 
-This README is structured to help you understand the repo, run it, and extend/refactor it in the future. For refactors:
-- Centralize lexicon loading in `helpers.py` for easy swaps.
-- Patterns are in `SelfIdentificationDetector` – add new categories by extending `self.patterns`.
-- Feature computation is modular in `apply_linguistic_features` – add new features by extending the function.
-- Use tests in `tests/` to validate changes.
+- **Reddit** (2010-2022): Posts and comments from Pushshift dumps
+- **TUSC** (Twitter): Geolocated tweets from the TUSC dataset
+- **Google Books Ngrams**: English fiction 5-grams
+- **AI-Generated Text**: WildChat, LMSYS, PIPPA, HH-RLHF, RAID, and more
+- **Blog Spinner Data**: XML-based blog posts
 
-## Setup and Installation
+## Repository Structure
 
-1. **Clone the Repository**:
-   ```
-   git clone <repo-url>
-   cd abcde
-   ```
+```
+abcde/
+├── src/abcde/              # Main Python package
+│   ├── __init__.py
+│   ├── core/               # Core detection and feature extraction
+│   │   ├── detector.py     # SelfIdentificationDetector class
+│   │   ├── features.py     # Linguistic feature computation
+│   │   └── pii.py          # PII detection
+│   ├── lexicons/           # Lexicon loading utilities
+│   │   └── loaders.py
+│   ├── io/                 # I/O utilities
+│   │   ├── csv_utils.py    # CSV/TSV reading/writing
+│   │   ├── jsonl_utils.py  # JSONL file handling
+│   │   └── demographics.py # Demographics aggregation
+│   └── utils/              # Utility functions
+│       ├── banner.py
+│       ├── dates.py
+│       └── text.py
+├── scripts/                # Processing scripts (CLI tools)
+│   ├── process_reddit.py
+│   ├── process_tusc.py
+│   ├── process_ngrams.py
+│   ├── process_ai_text.py
+│   ├── process_spinner.py
+│   └── merge_dataset.py
+├── bin/                    # Shell scripts
+│   ├── download/           # Data download scripts
+│   │   ├── download-reddit/
+│   │   └── download-google-books-ngrams/
+│   └── run/                # Pipeline execution scripts
+│       ├── run_reddit_pipeline.sh
+│       ├── run_tusc_pipeline_full.sh
+│       └── ...
+├── lexicons/               # Lexicon data files
+│   ├── NRC-*.txt           # NRC emotion/VAD/warmth lexicons
+│   ├── DMG-*.txt           # Demographic data (countries, cities, etc.)
+│   ├── BPM-*.txt           # Body part mentions
+│   ├── COG-*.json          # Cognitive/thinking words
+│   └── TIME-*.txt          # Tense data
+├── tests/                  # Test files
+├── helpers.py              # Backward-compatible imports
+├── pyproject.toml          # Package configuration
+├── README.md               # This file
+└── DATASET.md              # Dataset documentation
+```
 
-2. **Python Environment**:
-   - Requires Python 3.10+.
-   - Install dependencies with `uv` (recommended for speed) or `pip`:
-     ```
-     pip install uv  # If not installed
-     uv sync  # Installs from pyproject.toml
-     ```
-   - Key libraries: `pandas`, `nltk`, `presidio_analyzer`, `re` (built-in), etc.
-   - Download NLTK data:
-     ```
-     python -c "import nltk; nltk.download('stopwords')"
-     ```
+## Installation
 
-3. **Data Directories**:
-   - Lexicons are in `data/` (e.g., `NRC-Emotion-Lexicon.txt`).
-   - Input datasets go in `~/datasets/` (configurable in scripts).
-   - Outputs go in configurable directories (e.g., `/beegfs/wahle/github/abcde/` in examples).
+### Quick Install
 
-4. **HPC/SLURM Setup** (Optional):
-   - Scripts like `run_reddit_pipeline.sh` submit SLURM jobs.
-   - Adjust `--mem`, `--time`, etc., based on your cluster.
+```bash
+# Clone the repository
+git clone https://github.com/abcde-project/abcde.git
+cd abcde
+
+# Install with uv (recommended)
+pip install uv
+uv sync
+
+# Or install with pip
+pip install -e .
+```
+
+### Requirements
+
+- Python 3.10+
+- Dependencies are managed via `pyproject.toml`
+
+### Download NLTK Data
+
+```bash
+python -c "import nltk; nltk.download('stopwords')"
+```
+
+## Usage
+
+### As a Library
+
+```python
+from abcde import SelfIdentificationDetector, apply_linguistic_features
+
+# Detect demographic self-identification
+detector = SelfIdentificationDetector()
+text = "I am 25 years old and I live in London. I'm a software engineer."
+matches = detector.detect(text)
+print(matches)
+# {'age': ['25'], 'city': ['london'], 'occupation': ['software engineer']}
+
+# Get mappings (city -> country, etc.)
+detailed = detector.detect_with_mappings(text)
+print(detailed['city'])
+# {'raw': ['london'], 'country_mapped': ['United Kingdom']}
+
+# Extract linguistic features
+features = apply_linguistic_features(text)
+print(features['NRCAvgValence'])  # Average valence score
+print(features['WordCount'])      # Word count
+```
+
+### Processing Scripts
+
+```bash
+# Process Reddit data
+python scripts/process_reddit.py \
+    --input_dir /path/to/reddit/extracted \
+    --output_dir /path/to/output \
+    --stages both
+
+# Process TUSC data
+python scripts/process_tusc.py \
+    --input_file /path/to/tusc-city.parquet \
+    --output_dir /path/to/output \
+    --stages both
+
+# Process AI-generated text
+python scripts/process_ai_text.py \
+    --input_file /path/to/wildchat.csv \
+    --output_dir /path/to/output \
+    --dataset_name wildchat
+
+# Process Google Books Ngrams
+python scripts/process_ngrams.py \
+    --input_path /path/to/ngrams \
+    --output_path /path/to/output
+```
+
+### SLURM/HPC Usage
+
+```bash
+# Submit Reddit pipeline
+sbatch bin/run/run_reddit_pipeline.sh
+
+# Submit TUSC pipeline
+sbatch bin/run/run_tusc_pipeline_full.sh
+
+# Submit AI text pipeline
+sbatch bin/run/run_ai_text_pipeline.sh
+```
 
 ## Data Downloading
 
-The repo processes five main datasets: Reddit, Google Books Ngrams, Twitter (TUSC), AI-generated text corpora, and blog spinner data. Scripts are provided for downloading Reddit and Google Books. The others require manual acquisition.
+### Reddit (2010-2022)
 
-### 1. Reddit (2010-2022)
-   - Source: Pushshift dumps archived on Internet Archive.
-   - Files: Monthly ZST-compressed JSONL (RS_* for submissions/posts, RC_* for comments).
-   - Download Script: `download-reddit/download-reddit.sh`
-     - Generates URLs in `reddit-posts-urls.txt` and `reddit-comment-urls.txt` via `create-reddit-urls.sh`.
-     - Runs: `./download-reddit/download-reddit.sh` (parallel downloads with `wget`).
-     - Output: `~/datasets/reddit-2010-2022/downloaded/` (ZST files).
-   - Extraction: `./download-reddit/extract-reddit.sh` (uses `zstd -d` to extract to `extracted/`).
-   - Full Pipeline: Use `run_reddit_pipeline_full.sh` (downloads, extracts, processes).
-   - Size: ~10TB compressed; plan storage accordingly.
-   - Tip: For testing, use `run_reddit_pipeline_test.sh` on sample data.
+```bash
+# Generate URLs and download
+cd bin/download/download-reddit
+./create-reddit-urls.sh
+./download-reddit.sh
 
-### 2. Google Books Ngrams (English Fiction)
-   - Source: Google Books Ngram Viewer (v2 or v3; script uses v2 for fiction).
-   - Files: Ngram files (1-5 grams) in gzipped TSV.
-   - Download Script: `download-google-books-ngrams/download-google-books-ngrams.sh`
-     - Generates URLs in `google-books-ngram-urls.txt` via `create-google-books-ngram-urls.sh`.
-     - Runs: `./download-google-books-ngrams/download-google-books-ngrams.sh` (parallel with `wget`).
-     - Output: `~/datasets/google-books-ngrams/downloaded/` (gz files).
-   - Extraction: `./download-google-books-ngrams/extract-google-books-ngrams.sh` (uses `gunzip` to `extracted/`).
-   - Processing: `run_google_ngrams.sh` (SLURM job for `process_ngrams.py`).
-   - Monitoring: `check_ngrams_progress.sh` shows progress.
-   - Size: ~100GB extracted.
-
-### 3. Twitter (TUSC Dataset)
-   - Source: https://github.com/Priya22/EmotionDynamics (TUSC: Twitter User Self-Identification Corpus).
-   - Files: `tusc-city.parquet` and `tusc-country.parquet` (Parquet format with tweets).
-   - Download: Manual – clone the repo and copy Parquet files to `~/datasets/tusc/`.
-   - Processing: `run_tusc_pipeline.sh` or `run_tusc_pipeline_full.sh` (uses `process_tusc.py`).
-   - Tip: For testing, use `extract_tusc_test_data.sh` to create sample data in `data/test/tusc/`.
-
-### 4. AI-Generated Text Datasets
-   - Source: Various AI text corpora (WildChat, LMSYS, PIPPA, HH-RLHF, etc.).
-   - Files: CSV/TSV files with AI-generated and human prompt text.
-   - Download: Manual – obtain datasets from their respective sources and place in `~/datasets/ai-text-datasets/`.
-   - Supported Datasets:
-     - `wildchat-1m`: WildChat 1M conversations
-     - `lmsys-1m`: LMSYS 1M conversations
-     - `pippa`: PIPPA dataset
-     - `hh-rlhf`: Anthropic HH-RLHF
-     - `prism`: PRISM dataset
-     - `apt-paraphrase-dataset-gpt-3`: APT paraphrase dataset (GPT-3)
-     - `anthropic-persuasiveness`: Anthropic persuasiveness data
-     - `M4`: M4 dataset
-     - `mage`: MAGE dataset
-     - `luar`: LUAR dataset
-     - `general_thoughts_430k`: General thoughts 430K
-     - `reasoning_shield`: Reasoning shield dataset
-     - `safechain`: SafeChain dataset
-     - `star1`: STAR1 dataset
-     - `raid`: RAID dataset
-     - `tinystories`: TinyStories dataset
-   - Processing: `run_ai_text_pipeline.sh` (SLURM array job for parallel processing).
-   - Python Script: `process_ai_text.py` – detects AI/human text columns, applies linguistic features.
-   - Output: `outputs_ai_text_pipeline/<dataset>_features.tsv` (one row per text with `text_type` column: "AI" or "Human").
-
-### 5. Spinner (Blog Post) Dataset
-   - Source: Blog spinner corpus – XML files containing blog posts in RSS/Atom format.
-   - Files: XML files organized by tiergroup directories (tiergroup-1 through tiergroup-13, plus tiergroup-none).
-   - Download: Manual – place extracted XML files in `/beegfs/wahle/datasets/spinner/extracted/blogs/` (configurable in script).
-   - Processing: `run_spinner_pipeline.sh` (SLURM array job for parallel processing by tiergroup).
-   - Python Script: `process_spinner.py` – extracts blog posts from XML, sanitizes HTML, filters English-only posts (≥250 chars), applies linguistic features.
-   - Features:
-     - Language detection (English-only via `langdetect`).
-     - HTML sanitization and entity decoding.
-     - Extracts metadata: title, link, GUID, publication date, categories.
-   - Output: `outputs_spinner/<tiergroup>/spinner_blog_posts_features.tsv` per tiergroup.
-
-## Lexicons Used
-
-All lexicons are stored in `data/` and loaded in `helpers.py` via functions like `_load_lexicon()`. They power feature extraction in `apply_linguistic_features()` and demographic detection in `SelfIdentificationDetector`.
-
-### 1. NRC Lexicons (Emotion, VAD, Warmth/Competence, Anxiety/Calmness)
-   - **Source**: Dr. Saif Mohammad's NRC lab (https://saifmohammad.com/).
-   - **Files**:
-     - `NRC-Emotion-Lexicon.txt`: Word-emotion associations (anger, joy, etc.).
-       - Link: https://saifmohammad.com/WebPages/NRC-Emotion-Lexicon.htm
-       - Usage: Computes flags/counts/averages for 10 emotions (e.g., `NRCHasJoyWord`, `NRCCountPositiveWords`).
-     - `NRC-VAD-Lexicon.txt`: Valence (pleasantness), Arousal (activation), Dominance (control).
-       - Link: https://saifmohammad.com/WebPages/nrc-vad.html
-       - Usage: Averages (e.g., `NRCAvgValence`) and high/low thresholds (e.g., `NRCHasHighValenceWord` at >0.75).
-     - `NRC-Warmth-Lexicon.txt` & `NRC-SocialWarmth-Lexicon.txt`: Warmth (sociability, kindness) and competence (ability).
-       - Link: https://saifmohammad.com/WebPages/warmth.html
-       - Usage: Averages/flags for warmth (e.g., `NRCAvgWarmthWord`, `NRCHasHighSocialWarmthWord`).
-     - `NRC-WorryWords-Lexicon.txt`: Anxiety/calmness words (e.g., "worried" vs. "relaxed").
-       - Link: https://saifmohammad.com/worrywords.html (part of affect intensity).
-       - Usage: Averages/flags for anxiety (e.g., `NRCAvgAnxiety`, `NRCHasHighAnxietyWord`).
-     - `NRC-MoralTrustworthy-Lexicon.txt`: Moral trustworthiness (integrity, reliability).
-       - Link: Derived from warmth/competence work.
-       - Usage: Averages/flags (e.g., `NRCAvgMoralTrustWord`).
-   - **Loading**: Via `_load_nrc_*()` functions. Words are lowercased.
-   - **Refactor Tip**: To add a new NRC lexicon, create a loader like `_load_nrc_emotion_lexicon()` and integrate into `compute_vad_and_emotions()`.
-
-### 2. Tense Lexicon
-   - **Source**: UniMorph (English inflections): https://github.com/unimorph/eng
-   - **File**: `TIME-eng-word-tenses.txt` (processed from UniMorph).
-   - **Usage**: Detects past/present/future tenses (e.g., "walked" as past).
-     - Features: `TIMEHasPastWord`, `TIMECountPresentWords`, etc.
-   - **Loading**: `_load_eng_tenses_lexicon()` (key: base word, value: list of inflections).
-   - **Refactor Tip**: Extend for other languages by swapping the lexicon and adjusting regex in `apply_linguistic_features()`.
-
-### 3. Body Part Mentions (BPMs)
-   - **Sources**:
-     - Collins Dictionary: https://www.collinsdictionary.com/us/word-lists/bodyparts-of-the-body
-     - Enchanted Learning: https://www.enchantedlearning.com/wordlist/body.shtml
-   - **File**: Combined into `BPM-body-part-list.txt` (one word per line).
-   - **Usage**: Detects mentions with pronouns (e.g., "my head" → `MyBPM` list includes "head").
-     - Features: `HasBPM` (binary), `MyBPM`, `YourBPM`, etc. (lists of parts).
-   - **Loading**: Simple line-split in `apply_linguistic_features()`.
-   - **Refactor Tip**: To filter false positives, add context regex (e.g., exclude "head of state").
-
-### 4. Occupations
-   - **Source**: U.S. Bureau of Labor Statistics (SOC 2018): https://www.bls.gov/soc/2018/#materials
-   - **File**: `DMG-occupation-list.txt` (processed list of job titles).
-   - **Usage**: Detection patterns in `SelfIdentificationDetector` (e.g., "I am a software engineer").
-     - Mapping: `dmg_occupation_to_soc` (raw term → SOC title, e.g., "software engineer" → "Software Developers").
-     - Output: `DMGRawExtractedOccupation`, `DMGSOCTitleMappedFromExtractedOccupation`.
-   - **Loading**: `_load_lexicon()` with lowercasing.
-   - **Refactor Tip**: For updates, download new SOC data and regenerate the list/mapping.
-
-### 5. Gender, Country, Religion
-   - **Sources** (Wikipedia):
-     - Gender: https://en.wikipedia.org/wiki/List_of_gender_identities → `DMG-gender-list.txt`
-     - Country: https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population → `DMG-country-list.txt`
-     - Religion: https://en.wikipedia.org/wiki/List_of_religions_and_spiritual_traditions → `DMG-religion-list.csv` (with substrains, main religions, categories).
-   - **Usage**: Detection patterns for self-ID.
-     - Religion Mappings: Raw → Main (e.g., "catholic" → "Christianity"), Category (e.g., "Abrahamic Religions").
-     - Output: `DMGRawExtractedGender`, `DMGRawExtractedCountry`, `DMGRawExtractedReligion`, etc.
-   - **Loading**: Line-split or CSV in `helpers.py`.
-   - **Refactor Tip**: Use APIs (e.g., Wikipedia dumps) for auto-updates; add confidence scores to patterns.
-
-### 6. Cities
-   - **Source**: GeoNames (population >1000): https://public.opendatasoft.com/explore/dataset/geonames-all-cities-with-a-population-1000/table/?disjunctive.cou_name_en&sort=name
-   - **File**: `DMG-geonames-all-cities-with-a-population-1000.csv` (CSV with cities, countries, alternates).
-   - **Usage**: Detection + Mapping (city → country, e.g., "london" → "United Kingdom").
-     - Filtered: Excludes stopwords, countries, short names (<4 chars).
-     - Output: `DMGRawExtractedCity`, `DMGCountryMappedFromExtractedCity`.
-   - **Loading**: Pandas in `_load_dmg_cities()` (sorts by population for precedence).
-   - **Refactor Tip**: Integrate GeoPandas for lat/long if needed; handle ambiguities (e.g., multiple "Springfield"s).
-
-**General Lexicon Tips**:
-- All loaded as dicts/sets in `helpers.py`.
-- Preprocessing: Lowercased, filtered (e.g., stopwords for cities).
-- To add a lexicon: Create a loader, integrate into detection/features, update tests.
-- Licensing: NRC/Wikipedia are public; cite sources in papers.
-
-## Running the Pipelines
-
-### Reddit
-- Full: `./run_reddit_pipeline_full.sh` (download + process).
-- Process Only: `python process_reddit.py --input_dir <extracted> --output_dir <out> --stages both`.
-- Outputs: `reddit_users.tsv` (user demographics), `reddit_users_posts.tsv` (posts with features).
-- Stages: `detect` (demographics), `features` (linguistic), `both`.
+# Extract
+./extract-reddit.sh
+```
 
 ### Google Books Ngrams
-- Full: `./run_google_ngrams.sh` (processes extracted ngrams).
-- Outputs: Processed TSVs in `~/datasets/google-books-ngrams/processed/`.
+
+```bash
+cd bin/download/download-google-books-ngrams
+./create-google-books-ngram-urls.sh
+./download-google-books-ngrams.sh
+./extract-google-books-ngrams.sh
+```
 
 ### TUSC (Twitter)
-- Full: `./run_tusc_pipeline_full.sh`.
-- Process: `python process_tusc.py --input_file <parquet> --output_dir <out> --stages both`.
-- Outputs: Separate for city/country splits (e.g., `city_users.tsv`).
 
-### AI-Generated Text Datasets
-- Full (SLURM): `sbatch run_ai_text_pipeline.sh` (processes all 16 datasets in parallel via array jobs).
-- Single Dataset: `python process_ai_text.py --input_file <csv/tsv> --output_dir <out> --dataset_name <name>`.
-- Outputs: `<dataset>_features.tsv` with columns:
-  - `text`: The original text content.
-  - `text_type`: "AI" for AI-generated text, "Human" for prompts/instructions.
-  - Linguistic features (NRC emotions, VAD, warmth, tense, etc.).
-- Notes:
-  - Automatically detects AI text columns (`ai_text`, `response`, `model_answer`, etc.) and human columns (`prompt`, `instruction`, etc.).
-  - Some datasets have multiple AI columns (e.g., `model_answer` + `model_reasoning`); all are processed.
+Download from https://github.com/Priya22/EmotionDynamics and place parquet files in your data directory.
 
-### Spinner (Blog Posts)
-- Full (SLURM): `sbatch run_spinner_pipeline.sh` (processes all 14 tiergroups in parallel via array jobs).
-- Single Tiergroup: `python process_spinner.py --input_dir <xml_dir> --output_dir <out>`.
-- Debug Mode: Add `--max_files <n>` to limit the number of XML files processed.
-- Outputs: `spinner_blog_posts_features.tsv` per tiergroup with columns:
-  - `file_path`: Source XML file.
-  - `title`, `link`, `guid`, `pubDate`: Blog post metadata.
-  - `description_raw`: Original HTML content.
-  - `description`: Sanitized plain text.
-  - `categories`: Pipe-separated categories from the post.
-  - Linguistic features (NRC emotions, VAD, warmth, tense, etc.).
-- Notes:
-  - Only English posts with ≥250 characters are included.
-  - HTML entities and tags are stripped; output is tab-safe UTF-8.
+## Lexicons
 
-### Monitoring
-- Reddit: `./monitor_reddit_pipeline.sh`.
-- Ngrams: `./check_ngrams_progress.sh`.
-- Line Counts: `./compute_linecounts.sh` (for Reddit).
+All lexicons are stored in `lexicons/` and include:
 
-### Testing
-- Run: `uv run pytest`.
-- Extracts samples: `./extract_reddit_test_data.sh`, `./extract_tusc_test_data.sh`.
-- Verifies: `test_output_verification.py`.
+| Lexicon | Description | Source |
+|---------|-------------|--------|
+| NRC-Emotion-Lexicon.txt | Word-emotion associations | [NRC](https://saifmohammad.com/WebPages/NRC-Emotion-Lexicon.htm) |
+| NRC-VAD-Lexicon.txt | Valence-Arousal-Dominance scores | [NRC](https://saifmohammad.com/WebPages/nrc-vad.html) |
+| NRC-WorryWords-Lexicon.txt | Anxiety/calmness words | [NRC](http://saifmohammad.com/worrywords.html) |
+| NRC-*Warmth-Lexicon.txt | Social warmth scores | [NRC](https://saifmohammad.com/WebPages/lexicons.html) |
+| DMG-country-list.txt | Country names | Wikipedia |
+| DMG-geonames-*.csv | City data with countries | [GeoNames](https://public.opendatasoft.com) |
+| DMG-religion-list.csv | Religion mappings | Wikipedia |
+| TIME-eng-word-tenses.txt | English verb tenses | [UniMorph](https://github.com/unimorph/eng) |
+| BPM-bodywords-full.txt | Body part words | Collins/Enchanted Learning |
+| COG-thinking-words-categorized.json | Cognitive verbs | Custom |
 
 ## Output Format
 
-- **Users TSV**: User ID, aggregated demographics (e.g., `DMGMajorityBirthyear`, lists of extracted cities).
-- **Posts TSV**: Post ID, User ID, Text, Demographics (e.g., `DMGAgeAtPost`), Linguistic Features (e.g., `NRCAvgValence`, `TIMEHasPastWord`).
-- All values lowercased; lists as comma-separated.
-- Use `get_csv_fieldnames()` in `helpers.py` for exact columns.
+### Users TSV
+Contains aggregated demographics per user:
+- `Author`: User ID
+- `DMGMajorityBirthyear`: Resolved birth year
+- `DMGRawExtractedCity`, `DMGCountryMappedFromExtractedCity`
+- `DMGRawExtractedReligion`, `DMGMainReligionMappedFromExtractedReligion`
+- `DMGRawExtractedOccupation`, `DMGSOCTitleMappedFromExtractedOccupation`
 
-If issues arise, check logs in `logs/` or SLURM outputs. For questions, refer to code comments or open an issue.
+### Posts TSV
+Contains per-post data with linguistic features:
+- Post metadata (ID, text, timestamp, etc.)
+- `DMGAgeAtPost`: Age when the post was created
+- NRC features (`NRCAvgValence`, `NRCHasJoyWord`, etc.)
+- Pronoun features (`PRNHasI`, `PRNHasWe`, etc.)
+- Tense features (`TIMEHasPastVerb`, `TIMECountPresentVerbs`, etc.)
+- Cognitive features (`COGHasAnalyzingEvaluatingWord`, etc.)
+- Body part mentions (`MyBPM`, `HasBPM`, etc.)
+
+See [DATASET.md](DATASET.md) for complete feature documentation.
+
+## Testing
+
+```bash
+# Run tests
+uv run pytest
+
+# Run with timeout
+uv run pytest --timeout=120
+```
+
+## Development
+
+```bash
+# Install dev dependencies
+uv sync --group dev
+
+# Run linter
+uv run ruff check .
+
+# Run formatter
+uv run ruff format .
+```
+
+## Citation
+
+If you use this dataset or code in your research, please cite:
+
+```bibtex
+@misc{abcde2024,
+  title={ABCDE: Age-Based Corpus of Demographic Expressions},
+  author={ABCDE Team},
+  year={2024},
+  url={https://github.com/abcde-project/abcde}
+}
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- NRC lexicons by Dr. Saif Mohammad
+- UniMorph project for tense data
+- GeoNames for city data
+- Pushshift for Reddit archives

@@ -23,7 +23,7 @@ export PYTHONUNBUFFERED=1
 
 echo "Starting PII detection job array task ${SLURM_ARRAY_TASK_ID} at $(date)"
 
-uv run python process_reddit.py \
+uv run python scripts/process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --workers "$SLURM_CPUS_PER_TASK" \

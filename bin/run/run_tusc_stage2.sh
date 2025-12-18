@@ -27,7 +27,7 @@ echo "Output directory: $OUTPUT_DIR"
 echo "Chunk size: $CHUNK_SIZE"
 
 # Run Stage 2 only
-uv run python process_tusc.py \
+uv run python scripts/process_tusc.py \
     --input_file "$INPUT_FILE" \
     --output_dir "$OUTPUT_DIR" \
     --chunk_size "$CHUNK_SIZE" \

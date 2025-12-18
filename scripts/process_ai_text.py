@@ -4,13 +4,21 @@ Process AI-generated text datasets to compute linguistic features.
 """
 import argparse
 import os
+import sys
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
-from helpers import apply_linguistic_features, print_banner
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from abcde import apply_linguistic_features, print_banner
 
 
-def _detect_text_columns(df: pd.DataFrame, dataset_name: str, dataset_ai_map) -> tuple[list[str], list[str]]:
+def _detect_text_columns(
+    df: pd.DataFrame, dataset_name: str, dataset_ai_map
+) -> tuple[list[str], list[str]]:
     """Return (ai_columns, human_columns) present in df for the given dataset.
 
     Heuristic:
@@ -68,7 +76,9 @@ def _detect_text_columns(df: pd.DataFrame, dataset_name: str, dataset_ai_map) ->
     return ai_cols, human_cols
 
 
-def _build_long_text_df(df: pd.DataFrame, ai_cols: list[str], human_cols: list[str]) -> pd.DataFrame:
+def _build_long_text_df(
+    df: pd.DataFrame, ai_cols: list[str], human_cols: list[str]
+) -> pd.DataFrame:
     """Create a long-format DataFrame with columns ['text', 'text_type'].
 
     - Emits one row per non-empty string in provided AI/Human columns
@@ -91,7 +101,11 @@ def _build_long_text_df(df: pd.DataFrame, ai_cols: list[str], human_cols: list[s
             if isinstance(val, str) and val.strip():
                 records.append({"text": val, "text_type": "Human"})
 
-    return pd.DataFrame.from_records(records, columns=["text", "text_type"]) if records else pd.DataFrame(columns=["text", "text_type"])
+    return (
+        pd.DataFrame.from_records(records, columns=["text", "text_type"])
+        if records
+        else pd.DataFrame(columns=["text", "text_type"])
+    )
 
 
 def log_with_timestamp(message: str) -> None:
@@ -142,7 +156,9 @@ def main(input_file: str, output_dir: str, dataset_name: str) -> None:
         # Detect separator (CSV or TSV)
         sep = "\t" if input_file.endswith(".tsv") else ","
         if dataset_name == "wildchat-1m":
-            df = pd.read_csv(input_file, sep=sep, low_memory=False, encoding="windows-1252")
+            df = pd.read_csv(
+                input_file, sep=sep, low_memory=False, encoding="windows-1252"
+            )
         else:
             df = pd.read_csv(input_file, sep=sep, low_memory=False)
     except FileNotFoundError:

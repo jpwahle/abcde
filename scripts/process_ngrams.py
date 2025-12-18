@@ -18,14 +18,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 try:
     import numpy as np
+
     FAST_IO_AVAILABLE = True
 except ImportError:
     FAST_IO_AVAILABLE = False
     print("Warning: numpy not available. Fast indexing requires numpy.")
 
-from helpers import apply_linguistic_features, print_banner
+from abcde import apply_linguistic_features, print_banner
 
 
 def log_with_timestamp(message: str) -> None:
@@ -226,7 +230,9 @@ def process_file_chunk_indexed(
     results = []
 
     # Read lines using index
-    lines = read_lines_indexed(str(file_path), str(index_path), start_line, end_line - 1)
+    lines = read_lines_indexed(
+        str(file_path), str(index_path), start_line, end_line - 1
+    )
 
     for line in lines:
         if not line:
@@ -391,7 +397,9 @@ def main():
                     try:
                         build_index(str(file_path), str(index_path))
                     except Exception as e:
-                        log_with_timestamp(f"Error building index for {file_path.name}: {e}")
+                        log_with_timestamp(
+                            f"Error building index for {file_path.name}: {e}"
+                        )
                         # If index building fails, we can't proceed with indexed mode.
                         log_with_timestamp("Exiting due to index building failure.")
                         sys.exit(1)
@@ -399,13 +407,20 @@ def main():
 
     # --- Task Mapping ---
     # All tasks build the full task list to ensure consistent mapping.
-    log_with_timestamp(f"Task {args.task_id}: Building task index for pattern '{args.pattern}'...")
+    log_with_timestamp(
+        f"Task {args.task_id}: Building task index for pattern '{args.pattern}'..."
+    )
     tasks = build_task_index(
-        input_dir, args.pattern, args.chunk_size, index_dir if not args.use_sequential else None
+        input_dir,
+        args.pattern,
+        args.chunk_size,
+        index_dir if not args.use_sequential else None,
     )
 
     if not tasks:
-        log_with_timestamp(f"Error: No files matching pattern '{args.pattern}' in {input_dir}")
+        log_with_timestamp(
+            f"Error: No files matching pattern '{args.pattern}' in {input_dir}"
+        )
         sys.exit(1)
 
     log_with_timestamp(f"Task {args.task_id}: Total tasks (chunks) found: {len(tasks)}")
@@ -418,11 +433,19 @@ def main():
             continue
 
         chunk_lines = end_line - start_line
-        log_with_timestamp(f"\nTask {args.task_id}: Processing chunk {chunk_index} / {len(tasks)}")
+        log_with_timestamp(
+            f"\nTask {args.task_id}: Processing chunk {chunk_index} / {len(tasks)}"
+        )
         log_with_timestamp(f"  File: {file_path.name}")
-        log_with_timestamp(f"  Lines: {start_line:,} - {end_line:,} ({chunk_lines:,} lines)")
-        log_with_timestamp(f"  Features: {'ENABLED' if not args.no_features else 'DISABLED'}")
-        log_with_timestamp(f"  Method: {'SEQUENTIAL' if args.use_sequential else 'INDEXED'}")
+        log_with_timestamp(
+            f"  Lines: {start_line:,} - {end_line:,} ({chunk_lines:,} lines)"
+        )
+        log_with_timestamp(
+            f"  Features: {'ENABLED' if not args.no_features else 'DISABLED'}"
+        )
+        log_with_timestamp(
+            f"  Method: {'SEQUENTIAL' if args.use_sequential else 'INDEXED'}"
+        )
 
         start_time = datetime.now()
         results = []
@@ -439,7 +462,9 @@ def main():
                 index_path = index_dir / f"{file_path.name}.idx"
                 # Wait for the index file to be created by task 0.
                 if not index_path.exists():
-                    log_with_timestamp(f"Task {args.task_id}: Waiting for index file: {index_path}")
+                    log_with_timestamp(
+                        f"Task {args.task_id}: Waiting for index file: {index_path}"
+                    )
                     if not wait_for_index(str(index_path)):
                         log_with_timestamp(
                             f"Timeout waiting for index {index_path}. Skipping chunk."
@@ -454,11 +479,15 @@ def main():
                     include_features=not args.no_features,
                 )
         except Exception as e:
-            log_with_timestamp(f"!!! ERROR processing chunk {chunk_index} for file {file_path.name}: {e}")
-            continue # Move to the next chunk
+            log_with_timestamp(
+                f"!!! ERROR processing chunk {chunk_index} for file {file_path.name}: {e}"
+            )
+            continue  # Move to the next chunk
 
         processing_time = (datetime.now() - start_time).total_seconds()
-        log_with_timestamp(f"Processed {len(results):,} ngrams in {processing_time:.2f} seconds")
+        log_with_timestamp(
+            f"Processed {len(results):,} ngrams in {processing_time:.2f} seconds"
+        )
 
         if not results:
             log_with_timestamp("No valid ngrams found in this chunk.")
@@ -494,7 +523,9 @@ def main():
                     writer.writeheader()
                 writer.writerows(results)
 
-            log_with_timestamp(f"Appended results for chunk {chunk_index} to: {output_file}")
+            log_with_timestamp(
+                f"Appended results for chunk {chunk_index} to: {output_file}"
+            )
         except Exception as e:
             log_with_timestamp(f"!!! ERROR writing output for chunk {chunk_index}: {e}")
 

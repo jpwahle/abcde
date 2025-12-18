@@ -17,7 +17,7 @@ CHUNK_SIZE=${CHUNK_SIZE:-10000}
 
 export PYTHONUNBUFFERED=1
 
-uv run python process_reddit.py \
+uv run python scripts/process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --workers "$SLURM_CPUS_PER_TASK" \

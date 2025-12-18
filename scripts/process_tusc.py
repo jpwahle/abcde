@@ -4,24 +4,29 @@ Process TUSC pipeline: detect self-identified users and collect posts with lingu
 """
 import argparse
 import os
+import pathlib
 import signal
-import psutil
+import sys
 from datetime import datetime
 
 import pandas as pd
+import psutil
 import pyarrow.parquet as pq
 from tqdm import tqdm
 
-from helpers import (
-    SelfIdentificationDetector,
-    apply_linguistic_features,
+# Add parent directory to path for imports
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
+
+from abcde import SelfIdentificationDetector, apply_linguistic_features, print_banner
+from abcde.core.detector import (
     detect_self_identification_in_tusc_entry,
     detect_self_identification_in_tusc_entry_with_mappings,
+)
+from abcde.io import (
+    aggregate_user_demographics,
+    append_results_to_csv,
     ensure_output_directory,
     write_results_to_csv,
-    append_results_to_csv,
-    print_banner,
-    aggregate_user_demographics,
 )
 
 

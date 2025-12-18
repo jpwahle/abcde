@@ -16,14 +16,19 @@ import glob
 import html
 import os
 import re
+import sys
 from datetime import datetime
 from functools import partial
+from pathlib import Path
 from typing import Any, Dict, List, Optional
-from langdetect import detect, DetectorFactory
 
 import pandas as pd
+from langdetect import detect, DetectorFactory
 
-from helpers import apply_linguistic_features, print_banner
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from abcde import apply_linguistic_features, print_banner
 
 
 _entity_re = re.compile(r"&#x?[0-9a-fA-F]+;", flags=re.I)
@@ -40,18 +45,21 @@ def _sanitize(value: Any, *, strip_tags: bool = False) -> Any:
     text = _whitespace.sub(" ", text)
     return text.strip()
 
+
 _SANITISE_FIELD = partial(_sanitize, strip_tags=False)
 _SANITISE_CONTENT = partial(_sanitize, strip_tags=True)
 
+
 def _is_probably_english(text: str) -> bool:
     try:
-        return detect(text[:4000]) == "en"    # 4 KB is plenty and saves time
+        return detect(text[:4000]) == "en"  # 4 KB is plenty and saves time
     except Exception:
         return False
 
 
 def log(msg: str) -> None:
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}")
+
 
 def read_file(path: str) -> Optional[str]:
     try:
@@ -63,15 +71,25 @@ def read_file(path: str) -> Optional[str]:
 
 
 def find_field(content: str, tag: str) -> Optional[str]:
-    for pat in [fr"<{tag}>(.*?)</{tag}>", fr"<[^:>]*:{tag}>(.*?)</[^:>]*:{tag}>", fr"<{tag}[^>]*>(.*?)</{tag}>"]:
+    for pat in [
+        rf"<{tag}>(.*?)</{tag}>",
+        rf"<[^:>]*:{tag}>(.*?)</[^:>]*:{tag}>",
+        rf"<{tag}[^>]*>(.*?)</{tag}>",
+    ]:
         m = re.search(pat, content, re.DOTALL)
         if m:
             return html.unescape(m.group(1).strip())
     return None
 
+
 # quick helpers
-find_descriptions = lambda xml: re.findall(r"<content:encoded>(.*?)</content:encoded>|<description>(.*?)</description>", xml, re.DOTALL)
-find_categories   = lambda xml: re.findall(r"<category>(.*?)</category>", xml, re.DOTALL)
+find_descriptions = lambda xml: re.findall(
+    r"<content:encoded>(.*?)</content:encoded>|<description>(.*?)</description>",
+    xml,
+    re.DOTALL,
+)
+find_categories = lambda xml: re.findall(r"<category>(.*?)</category>", xml, re.DOTALL)
+
 
 def process_xml(path: str) -> List[Dict[str, Any]]:
     xml = read_file(path)
@@ -104,7 +122,16 @@ def process_xml(path: str) -> List[Dict[str, Any]]:
         except Exception as exc:
             log(f"skip features: {exc}")
             continue
-        out.append({k: (_SANITISE_CONTENT(v) if k.startswith("description") else _SANITISE_FIELD(v)) for k, v in rec.items()})
+        out.append(
+            {
+                k: (
+                    _SANITISE_CONTENT(v)
+                    if k.startswith("description")
+                    else _SANITISE_FIELD(v)
+                )
+                for k, v in rec.items()
+            }
+        )
     return out
 
 
@@ -128,8 +155,18 @@ def main(inp: str, out_dir: str, max_files: Optional[int]):
     df = pd.DataFrame(rows)
     out_path = os.path.join(out_dir, "spinner_blog_posts_features.tsv")
     log(f"Writing {len(df)} rows → {out_path}")
-    df.to_csv(out_path, sep="\t", index=False, encoding="utf-8", lineterminator="\n", quoting=csv.QUOTE_NONE, escapechar="\\")
-    assert not df.apply(lambda c: c.astype(str).str.contains(r"[\n\r\t]").any()).any(), "raw newlines or tabs slipped in"
+    df.to_csv(
+        out_path,
+        sep="\t",
+        index=False,
+        encoding="utf-8",
+        lineterminator="\n",
+        quoting=csv.QUOTE_NONE,
+        escapechar="\\",
+    )
+    assert not df.apply(
+        lambda c: c.astype(str).str.contains(r"[\n\r\t]").any()
+    ).any(), "raw newlines or tabs slipped in"
     log("Done ✨")
 
 

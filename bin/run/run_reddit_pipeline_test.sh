@@ -17,7 +17,7 @@ OUTPUT_DIR=/beegfs/wahle/github/abcde/outputs_reddit_test
 CHUNK_SIZE=${CHUNK_SIZE:-100000}
 STAGES="both"
 
-uv run python process_reddit.py \
+uv run python scripts/process_reddit.py \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
     --workers "$SLURM_CPUS_PER_TASK" \

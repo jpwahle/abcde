@@ -10,12 +10,15 @@ import math
 import mmap
 import os
 import pathlib
+import sys
 import time
-from typing import Optional
-from helpers import print_banner
-import pandas as pd
 from datetime import datetime
-import random
+from typing import Optional
+
+import pandas as pd
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 try:
     import numpy as np
@@ -26,15 +29,17 @@ except ImportError:
     FAST_IO_AVAILABLE = False
     print("Warning: numpy and/or orjson not available. Falling back to slower I/O.")
 
-
-from helpers import (
+from abcde import (
     SelfIdentificationDetector,
     PIIDetector,
+    apply_linguistic_features,
+    print_banner,
+)
+from abcde.core.detector import detect_self_identification_with_resolved_age
+from abcde.core.pii import detect_pii_in_post
+from abcde.io import (
     aggregate_user_demographics,
     append_results_to_csv,
-    apply_linguistic_features,
-    detect_self_identification_with_resolved_age,
-    detect_pii_in_post,
     ensure_output_directory,
     extract_columns,
     filter_entry,
@@ -436,12 +441,12 @@ def process_chunk_pii(task):
             continue
         if not filter_entry(entry, split="text", min_words=5, max_words=1000):
             continue
-        
+
         # Detect PII in the post
         pii_result = detect_pii_in_post(entry, _pii_detector)
         if pii_result:
             results_local.append(pii_result)
-    
+
     log_with_timestamp(
         f"Processed chunk {chunk_idx + 1}/{total_chunks_for_task}: {len(lines)} posts from {path}. Found {len(results_local)} posts with PII."
     )
@@ -458,14 +463,13 @@ def process_file_pii(file_path: str) -> list[dict]:
                 continue
             if not filter_entry(entry, split="text", min_words=5, max_words=1000):
                 continue
-            
+
             # Detect PII in the post
             pii_result = detect_pii_in_post(entry, _pii_detector)
             if pii_result:
                 results_local.append(pii_result)
-    
-    return results_local
 
+    return results_local
 
 
 def main(
@@ -585,14 +589,12 @@ def main(
         log_with_timestamp("Running in PII detection mode")
         pii_posts_path = os.path.join(output_dir, "reddit_pii_posts.tsv")
         total_pii_posts = 0
-        
+
         for fp, lines, chunk_idx, total_chunks_for_task in generate_tasks(files):
             if lines is None:
                 part = process_file_pii(fp)
             else:
-                part = process_chunk_pii(
-                    (fp, lines, chunk_idx, total_chunks_for_task)
-                )
+                part = process_chunk_pii((fp, lines, chunk_idx, total_chunks_for_task))
             append_results_to_csv(
                 part,
                 pii_posts_path,
@@ -601,12 +603,10 @@ def main(
                 split="text",
             )
             total_pii_posts += len(part)
-        
-        log_with_timestamp(
-            f"Task {task_id} found {total_pii_posts} posts with PII"
-        )
+
+        log_with_timestamp(f"Task {task_id} found {total_pii_posts} posts with PII")
         return  # Exit after PII detection
-    
+
     # Original self-identification mode
     self_user_ids: list[str] = []
     users_path = os.path.join(output_dir, "reddit_users.tsv")
@@ -647,12 +647,14 @@ def main(
         if stages == "2":
 
             # Sleep for a random amount of time to avoid overloading the filesystem
-            task_id = int(os.environ['SLURM_ARRAY_TASK_ID'])
+            task_id = int(os.environ["SLURM_ARRAY_TASK_ID"])
             M = 10  # Max concurrent loads; tune if needed (e.g., 20 if filesystem handles more)
             T = 180  # Load time in seconds (your 90s + buffer)
             group_size = M
             group_id = task_id // group_size
-            sleep_time = group_id * T + random.uniform(0, 10)  # Group delay + small jitter
+            sleep_time = group_id * T + random.uniform(
+                0, 10
+            )  # Group delay + small jitter
             time.sleep(sleep_time)
 
             log_with_timestamp(f"Loading {self_users_file}")
