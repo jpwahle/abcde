@@ -257,11 +257,11 @@ uv run ruff format .
 If you use this dataset or code in your research, please cite:
 
 ```bibtex
-@misc{abcde2024,
-  title={ABCDE: Age-Based Corpus of Demographic Expressions},
-  author={ABCDE Team},
-  year={2024},
-  url={https://github.com/abcde-project/abcde}
+@article{wahle2025affect,
+  title={Affect, Body, Cognition, Demographics, and Emotion: The ABCDE of Text Features for Computational Affective Science},
+  author={Wahle, Jan Philip and Vishnubhotla, Krishnapriya and Gipp, Bela and Mohammad, Saif M},
+  journal={arXiv preprint arXiv:2512.17752},
+  year={2025}
 }
 ```
 
