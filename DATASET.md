@@ -251,6 +251,9 @@ The system uses 6 regex patterns to detect age self-identification:
 - **book_count**: Number of books containing the ngram
 
 ### Body Part Mentions (BPM prefix)
+Body parts are matched as whole words/phrases (word boundaries on both sides),
+so partial-word overlaps (e.g., "Lightfoot" for "foot", "Liverpool" for
+"liver") do not count as mentions.
 - **HasBPM**: Boolean - any body part found in text
 - **MyBPM**: Body parts mentioned after "my" (e.g., "my head")
 - **YourBPM**: Body parts mentioned after "your"

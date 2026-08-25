@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Set
+from functools import lru_cache
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Lazy-loaded lexicons (loaded on first use)
 _lexicons_loaded = False
@@ -247,27 +248,68 @@ def compute_vad_and_emotions(
     }
 
 
+_BPM_PREFIXES = [
+    ("my", "MyBPM"),
+    ("your", "YourBPM"),
+    ("her", "HerBPM"),
+    ("his", "HisBPM"),
+    ("their", "TheirBPM"),
+]
+
+
+@lru_cache(maxsize=8)
+def _compile_body_part_patterns(
+    body_parts: Tuple[str, ...],
+) -> List[Tuple[str, re.Pattern]]:
+    """Compile a word-boundary pattern per body part.
+
+    Each pattern optionally captures a possessive prefix ("my arm") in
+    group 1. Apostrophes match both straight and curly variants.
+    """
+    prefix_group = "|".join(pref for pref, _ in _BPM_PREFIXES)
+    patterns = []
+    seen = set()
+    for bp in body_parts:
+        if bp in seen:
+            continue
+        seen.add(bp)
+        escaped = re.escape(bp).replace("'", "['’]")
+        patterns.append(
+            (bp, re.compile(rf"\b(?:({prefix_group})\s+)?{escaped}\b"))
+        )
+    return patterns
+
+
 def compute_prefixed_body_part_mentions(
     text: str, body_parts: Optional[List[str]] = None
 ) -> Dict[str, Any]:
-    """Compute body part mentions with possessive prefixes."""
+    """Compute body part mentions with possessive prefixes.
+
+    Body parts are matched as whole words/phrases (word boundaries on
+    both sides), so partial-word overlaps such as "Lightfoot" -> "foot"
+    or "Liverpool" -> "liver" do not count as mentions.
+    """
     _ensure_lexicons_loaded()
     body_parts = body_parts or _body_parts
 
     lower = text.lower()
-    prefixes = [
-        ("my ", "MyBPM"),
-        ("your ", "YourBPM"),
-        ("her ", "HerBPM"),
-        ("his ", "HisBPM"),
-        ("their ", "TheirBPM"),
-    ]
-    res: Dict[str, Any] = {}
-    for pref, label in prefixes:
-        res[label] = ", ".join(
-            p for p in (pref + bp for bp in body_parts) if p in lower
-        )
-    res["HasBPM"] = any(bp in lower for bp in body_parts)
+    label_for_prefix = dict(_BPM_PREFIXES)
+    matched: Dict[str, List[str]] = {label: [] for _, label in _BPM_PREFIXES}
+    has_bpm = False
+    for bp, pattern in _compile_body_part_patterns(tuple(body_parts)):
+        prefixes_found = set()
+        for m in pattern.finditer(lower):
+            has_bpm = True
+            if m.group(1):
+                prefixes_found.add(m.group(1))
+        for pref, label in _BPM_PREFIXES:
+            if pref in prefixes_found:
+                matched[label].append(f"{pref} {bp}")
+
+    res: Dict[str, Any] = {
+        label: ", ".join(matched[label]) for _, label in _BPM_PREFIXES
+    }
+    res["HasBPM"] = has_bpm
     return res
 
 

@@ -68,6 +68,62 @@ class TestFeatures:
             apply_linguistic_features("")
 
 
+class TestBodyPartMentions:
+    """Tests for body part mention (BPM) features."""
+
+    def test_whole_word_match(self):
+        """Body parts as standalone words are detected."""
+        from abcde.core import compute_prefixed_body_part_mentions
+
+        res = compute_prefixed_body_part_mentions("I broke my foot yesterday")
+        assert res["HasBPM"] is True
+        assert "my foot" in res["MyBPM"]
+
+    def test_multiword_body_part(self):
+        """Multi-word lexicon entries are detected."""
+        from abcde.core import compute_prefixed_body_part_mentions
+
+        res = compute_prefixed_body_part_mentions("her belly button piercing")
+        assert res["HasBPM"] is True
+        assert "her belly button" in res["HerBPM"]
+
+    def test_no_partial_word_match(self):
+        """Body parts embedded in longer words do not count (issue
+        reported for HasBPM: 'Lightfoot' -> 'foot', 'Liverpool' ->
+        'liver', 'lmaolippi' -> 'lip', 'Columbus' -> 'lumbus')."""
+        from abcde.core import compute_prefixed_body_part_mentions
+
+        false_positives = [
+            "@ThatEricAlper Carefree highway Gordon Lightfoot",
+            "City losing to South Hampton after they crucified Liverpool\U0001F62A .",
+            "@lmaolippi do you think she cares ? lol",
+            "@runner6565 @CatharineMc @CTVNews i guess that’s why there’s "
+            "was a statue in Baltimore- home of the Star Spangled Banner "
+            "\U0001F1FA\U0001F1F8 and Columbus’s last stand",
+        ]
+        for text in false_positives:
+            res = compute_prefixed_body_part_mentions(text)
+            assert res["HasBPM"] is False, text
+
+    def test_prefix_requires_word_boundary(self):
+        """A possessive prefix inside another word ('jimmy foot') does
+        not count as 'my foot', but the standalone body part still
+        sets HasBPM."""
+        from abcde.core import compute_prefixed_body_part_mentions
+
+        res = compute_prefixed_body_part_mentions("jimmy foot race")
+        assert res["HasBPM"] is True
+        assert res["MyBPM"] == ""
+
+    def test_punctuation_adjacent_match(self):
+        """Punctuation next to a body part does not block the match."""
+        from abcde.core import compute_prefixed_body_part_mentions
+
+        res = compute_prefixed_body_part_mentions("My arm, it hurts!")
+        assert res["HasBPM"] is True
+        assert "my arm" in res["MyBPM"]
+
+
 class TestBackwardCompatibility:
     """Tests for backward-compatible helpers module."""
 
