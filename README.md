@@ -5,6 +5,12 @@
 [![arXiv](https://img.shields.io/badge/arXiv-2512.17752-b31b1b.svg)](https://arxiv.org/abs/2512.17752)
 [![Hugging Face Dataset](https://img.shields.io/badge/🤗%20Dataset-abcde-orange)](https://huggingface.co/datasets/jpwahle/abcde)
 
+## Latest dataset release
+
+[**ABCDE v1.1**](https://huggingface.co/datasets/jpwahle/abcde/tree/v1.1) provides 264,210,076 enriched text records with the corrected `HasBPM` matching and 48 moral-foundation features per text field. Processed annotations are public; the source moral lexicons are excluded.
+
+See [release notes and loading instructions](RELEASES.md) and the [required feature/source citations](CITATIONS.md). The HF release contains 31 Parquet subsets and three unchanged demographic-user tables.
+
 ## Overview
 
 **ABCDE** (Affect, Body, Cognition, Demographics, and Emotion) is a Python library for processing large textual datasets to extract demographic self-identification (e.g., age, gender, occupation, location, religion) and compute linguistic features (e.g., emotions, valence-arousal-dominance, warmth-competence, tense, body part mentions).
