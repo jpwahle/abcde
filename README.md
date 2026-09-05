@@ -256,7 +256,19 @@ uv run ruff format .
 
 ## Citation
 
-If you use this dataset or code in your research, please cite:
+If you use this dataset or code in your research, cite ABCDE and the original work for each feature or data source you use:
+
+| If you use… | You must also cite… |
+|-------------|----------------------|
+| Age data, including `DMGAgeAtPost`, birth years, or age-selected subsets | Teodorescu, Wahle, and Mohammad (2026), [Age and Affect in Language: How Emotion Expression on Social Media Varies Across Adulthood](https://aclanthology.org/2026.cas-1.15/) |
+| Valence, arousal, or dominance (VAD) features | **Both** Mohammad (2018), [Obtaining Reliable Human Ratings of Valence, Arousal, and Dominance for 20,000 English Words](https://aclanthology.org/P18-1017/), and Mohammad (2025), [NRC VAD Lexicon v2](https://arxiv.org/abs/2503.23547) |
+| AI-generated text | The paper or resource that compiled **each AI dataset used**; see the [AI source citation table](CITATIONS.md#ai-generated-text) |
+| TUSC tweets | Vishnubhotla and Mohammad (2022), [Tweet Emotion Dynamics: Emotion Word Usage in Tweets from US and Canada](https://aclanthology.org/2022.lrec-1.442/) |
+| Emotion/sentiment, anxiety/calmness, warmth/trust, body-part features, Reddit, blogs, books, or tense features | The applicable entries in the [full citation guide](CITATIONS.md) |
+
+These requirements are cumulative. For example, an age-based study of VAD in TUSC tweets must cite ABCDE, the age paper, both VAD papers, and TUSC. The VAD citation requirement does not change which lexicon version was used to compute existing features; see [DATASET.md](DATASET.md#lexicons-used).
+
+The ABCDE citation is:
 
 ```bibtex
 @article{wahle2025affect,
@@ -269,7 +281,7 @@ If you use this dataset or code in your research, please cite:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+The code is licensed under the MIT License - see [LICENSE](LICENSE). Source datasets and lexicons retain their own terms of use and attribution requirements; see [CITATIONS.md](CITATIONS.md).
 
 ## Acknowledgments
 

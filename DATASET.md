@@ -1,6 +1,8 @@
 # ABCDE Dataset Documentation
 
-**ABCDE** (Age-Based Corpus of Demographic Expressions) contains linguistic and demographic information extracted from multiple sources including Reddit posts, Twitter/X posts (via [TUSC](https://aclanthology.org/2022.lrec-1.442.pdf)), AI-generated text, blog posts, and Google Books Ngrams.
+**ABCDE** (Affect, Body, Cognition, Demographics, and Emotion) contains linguistic and demographic information extracted from multiple sources including Reddit posts, Twitter/X posts (via [TUSC](https://aclanthology.org/2022.lrec-1.442.pdf)), AI-generated text, blog posts, and Google Books Ngrams.
+
+**Citation requirements:** Cite ABCDE and all applicable feature and source papers in [CITATIONS.md](CITATIONS.md). In particular, age data require Teodorescu et al. (2026), VAD features require both Mohammad (2018, 2025), TUSC data require Vishnubhotla and Mohammad (2022), and AI-generated text requires the paper or resource that compiled each source dataset used.
 
 ## Dataset Statistics
 
